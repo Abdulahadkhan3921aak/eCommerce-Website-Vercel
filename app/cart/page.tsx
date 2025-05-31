@@ -1,15 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import Image from 'next/image'
 import Link from 'next/link'
 import { useCart } from '@/lib/contexts/CartContext'
 import { SignInButton, SignedIn, SignedOut } from "@clerk/nextjs"
 import Header from "@/components/Header"
 
 export default function CartPage() {
-  const { items, removeFromCart, updateQuantity, getTotalPrice, getTotalItems } = useCart()
-  const [isLoading, setIsLoading] = useState(false)
+  const { items, removeFromCart, updateQuantity, getTotalPrice, getTotalItems, isLoading } = useCart()
+  const [isCheckoutLoading, setIsCheckoutLoading] = useState(false)
 
   const handleCheckout = async () => {
     if (items.length === 0) {
@@ -17,7 +16,7 @@ export default function CartPage() {
       return
     }
 
-    setIsLoading(true)
+    setIsCheckoutLoading(true)
     try {
       // Format items for Stripe
       const stripeItems = items.map(item => ({
@@ -28,7 +27,7 @@ export default function CartPage() {
             images: item.images.length > 0 ? [item.images[0]] : [],
             description: `Quantity: ${item.quantity}`,
           },
-          unit_amount: Math.round(item.effectivePrice * 100), // Use effectivePrice instead of price
+          unit_amount: Math.round(item.effectivePrice * 100),
         },
         quantity: item.quantity,
       }))
@@ -59,7 +58,7 @@ export default function CartPage() {
       console.error('Checkout error:', error)
       alert(`Checkout failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
-      setIsLoading(false)
+      setIsCheckoutLoading(false)
     }
   }
 
@@ -67,6 +66,20 @@ export default function CartPage() {
   const shipping = subtotal >= 100 ? 0 : 9.99
   const tax = subtotal * 0.08
   const total = subtotal + shipping + tax
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-white">
+        <Header />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
+            <p className="mt-4 text-lg text-gray-600">Loading your cart...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-white">
@@ -94,11 +107,11 @@ export default function CartPage() {
                 {items.map((item, index) => (
                   <div key={`${item._id}-${index}`} className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4 bg-white p-4 sm:p-6 rounded-lg border border-gray-200 shadow-sm">
                     <div className="flex-shrink-0 w-20 h-20 sm:w-24 sm:h-24">
-                      <Image
+                      <img
                         src={item.images[0] || '/placeholder-image.jpg'}
                         alt={item.name}
-                        width={96}
-                        height={96}
+                        width="96"
+                        height="96"
                         className="w-full h-full object-cover rounded-md"
                       />
                     </div>
@@ -125,7 +138,7 @@ export default function CartPage() {
                         <button
                           onClick={() => updateQuantity(item._id, item.quantity - 1)}
                           className="w-8 h-8 rounded-full border-2 border-gray-300 flex items-center justify-center hover:border-purple-600 text-gray-700 font-medium"
-                          disabled={item.quantity <= 1}
+                          disabled={item.quantity <= 1 || isLoading}
                         >
                           -
                         </button>
@@ -133,6 +146,7 @@ export default function CartPage() {
                         <button
                           onClick={() => updateQuantity(item._id, item.quantity + 1)}
                           className="w-8 h-8 rounded-full border-2 border-gray-300 flex items-center justify-center hover:border-purple-600 text-gray-700 font-medium"
+                          disabled={isLoading}
                         >
                           +
                         </button>
@@ -145,6 +159,7 @@ export default function CartPage() {
                         <button
                           onClick={() => removeFromCart(item._id)}
                           className="mt-1 sm:mt-2 text-red-600 hover:text-red-800 text-sm font-medium"
+                          disabled={isLoading}
                         >
                           Remove
                         </button>
@@ -186,10 +201,10 @@ export default function CartPage() {
                 <SignedIn>
                   <button
                     onClick={handleCheckout}
-                    disabled={isLoading || items.length === 0}
+                    disabled={isCheckoutLoading || items.length === 0 || isLoading}
                     className="w-full mt-4 sm:mt-6 btn-primary py-3 text-base sm:text-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isLoading ? (
+                    {isCheckoutLoading ? (
                       <div className="flex items-center justify-center">
                         <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
                         Processing...

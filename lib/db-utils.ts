@@ -1,6 +1,7 @@
 import dbConnect from './mongodb'
 import Product from './models/Product'
 import Category from './models/Category'
+import Cart from './models/Cart'
 
 export async function getAllProducts() {
   await dbConnect()
@@ -36,3 +37,22 @@ export async function searchProducts(query: string) {
     ]
   })
 }
+
+export interface CartItem {
+  _id: string
+  name: string
+  price: number
+  salePrice?: number
+  effectivePrice: number
+  images: string[]
+  category: string
+  quantity: number
+  userId: string
+}
+
+export interface CartState {
+  items: CartItem[]
+  itemCount: number
+  totalPrice: number
+}
+

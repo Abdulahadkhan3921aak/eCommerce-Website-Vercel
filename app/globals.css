@@ -43,7 +43,12 @@ body {
     @apply bg-white text-gray-900 font-sans;
   }
 
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     @apply text-gray-900 font-semibold;
   }
 
@@ -51,8 +56,20 @@ body {
     @apply text-gray-700;
   }
 
+  span {
+    @apply text-gray-700;
+  }
+
   a {
     @apply text-gray-900;
+  }
+
+  input {
+    @apply text-gray-700
+  }
+
+  textarea {
+    @apply text-gray-700
   }
 }
 

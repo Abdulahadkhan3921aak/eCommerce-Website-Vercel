@@ -57,7 +57,7 @@ export default function EditProductPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="min-h-screen bg-white flex items-center justify-center px-4">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
         <p className="ml-4 text-gray-600">Loading product details...</p>
       </div>
@@ -68,10 +68,10 @@ export default function EditProductPage() {
     return (
       <div className="min-h-screen bg-gray-100">
         <Header />
-        <main className="max-w-3xl mx-auto py-6 sm:px-6 lg:px-8">
-          <div className="text-red-500 p-4 bg-red-100 rounded">Error: {error}</div>
+        <main className="max-w-3xl mx-auto py-4 sm:py-6 px-4 sm:px-6 lg:px-8">
+          <div className="text-red-500 p-4 bg-red-100 rounded text-sm">Error: {error}</div>
            <div className="mt-4">
-            <Link href="/admin/products" className="text-purple-600 hover:text-purple-800 hover:underline">
+            <Link href="/admin/products" className="text-purple-600 hover:text-purple-800 hover:underline text-sm sm:text-base">
                 &larr; Back to Products
             </Link>
         </div>
@@ -84,10 +84,10 @@ export default function EditProductPage() {
      return (
       <div className="min-h-screen bg-gray-100">
         <Header />
-        <main className="max-w-3xl mx-auto py-6 sm:px-6 lg:px-8">
+        <main className="max-w-3xl mx-auto py-4 sm:py-6 px-4 sm:px-6 lg:px-8">
           <p>Product not found.</p>
            <div className="mt-4">
-            <Link href="/admin/products" className="text-purple-600 hover:text-purple-800 hover:underline">
+            <Link href="/admin/products" className="text-purple-600 hover:text-purple-800 hover:underline text-sm sm:text-base">
                 &larr; Back to Products
             </Link>
         </div>
@@ -99,13 +99,13 @@ export default function EditProductPage() {
   return (
     <div className="min-h-screen bg-gray-100">
       <Header />
-      <main className="max-w-3xl mx-auto py-6 sm:px-6 lg:px-8">
+      <main className="max-w-3xl mx-auto py-4 sm:py-6 px-4 sm:px-6 lg:px-8">
         <div className="mb-4">
-            <Link href="/admin/products" className="text-purple-600 hover:text-purple-800 hover:underline">
+            <Link href="/admin/products" className="text-purple-600 hover:text-purple-800 hover:underline text-sm sm:text-base">
                 &larr; Back to Products
             </Link>
         </div>
-        <h1 className="text-2xl font-semibold text-gray-900 mb-6">Edit Product</h1>
+        <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 mb-4 sm:mb-6">Edit Product</h1>
         <ProductForm initialData={product} onSubmit={handleSubmit} isEditing={true} />
       </main>
     </div>

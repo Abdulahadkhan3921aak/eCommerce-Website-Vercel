@@ -27,12 +27,12 @@ export default clerkMiddleware((auth, req) => {
       // Ensure your admin users have {"role": "admin"} in their privateMetadata in the Clerk dashboard.
       const userRole = sessionClaims?.privateMetadata?.role as string | undefined;
       console.log(`Middleware (Admin Protect): Checking role. User role from sessionClaims.privateMetadata: ${userRole}`);
-      return userRole === 'admin';
+      return userRole === 'admin' || userRole === 'owner';
     }, {
       // Redirect to sign-in if not authenticated
       unauthenticatedUrl: process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL || '/sign-in',
       // Redirect to home page (or a specific "unauthorized" page) if authenticated but not an admin
-      unauthorizedUrl: '/', 
+      unauthorizedUrl: '/?error=unauthorized', 
     });
 
     // If auth.protect() does not throw an error or redirect, it means the user is authenticated and authorized.

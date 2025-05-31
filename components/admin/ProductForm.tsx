@@ -111,8 +111,8 @@ export default function ProductForm({ initialData, onSubmit, isEditing = false }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 bg-white p-8 shadow sm:rounded-lg">
-      {error && <div className="mb-4 text-red-600 bg-red-100 p-3 rounded">{error}</div>}
+    <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6 bg-white p-4 sm:p-8 shadow sm:rounded-lg">
+      {error && <div className="mb-4 text-red-600 bg-red-100 p-3 rounded text-sm">{error}</div>}
       
       <div>
         <label htmlFor="name" className="block text-sm font-medium text-gray-700">Name</label>
@@ -131,64 +131,78 @@ export default function ProductForm({ initialData, onSubmit, isEditing = false }
         <textarea name="description" id="description" value={formData.description} onChange={handleChange} rows={4} required className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"></textarea>
       </div>
 
-      <div>
-        <label htmlFor="price" className="block text-sm font-medium text-gray-700">Price</label>
-        <input type="number" name="price" id="price" value={formData.price} onChange={handleChange} required step="0.01" className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"/>
-      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label htmlFor="price" className="block text-sm font-medium text-gray-700">Price</label>
+          <input type="number" name="price" id="price" value={formData.price} onChange={handleChange} required step="0.01" className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"/>
+        </div>
 
-      <div>
-        <label htmlFor="salePrice" className="block text-sm font-medium text-gray-700">Sale Price (Optional)</label>
-        <input 
-          type="number" 
-          name="salePrice" 
-          id="salePrice" 
-          value={formData.salePrice === undefined ? '' : formData.salePrice} 
-          onChange={handleChange} 
-          step="0.01" 
-          placeholder="e.g., 79.99"
-          className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"
-        />
-        <p className="mt-1 text-xs text-gray-500">Leave blank if not on sale.</p>
+        <div>
+          <label htmlFor="salePrice" className="block text-sm font-medium text-gray-700">Sale Price (Optional)</label>
+          <input 
+            type="number" 
+            name="salePrice" 
+            id="salePrice" 
+            value={formData.salePrice === undefined ? '' : formData.salePrice} 
+            onChange={handleChange} 
+            step="0.01" 
+            placeholder="e.g., 79.99"
+            className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"
+          />
+          <p className="mt-1 text-xs text-gray-500">Leave blank if not on sale.</p>
+        </div>
       </div>
 
       <div>
         <label className="block text-sm font-medium text-gray-700">Images (URLs)</label>
-        {formData.images.map((image, index) => (
-          <div key={index} className="flex items-center mt-1">
-            <input
-              type="url"
-              value={image}
-              onChange={(e) => handleImageChange(index, e.target.value)}
-              placeholder="https://example.com/image.jpg"
-              className="block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"
-            />
-            {formData.images.length > 1 && (
-              <button type="button" onClick={() => removeImageField(index)} className="ml-2 text-red-500 hover:text-red-700">Remove</button>
-            )}
-          </div>
-        ))}
+        <div className="space-y-2">
+          {formData.images.map((image, index) => (
+            <div key={index} className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <input
+                type="url"
+                value={image}
+                onChange={(e) => handleImageChange(index, e.target.value)}
+                placeholder="https://example.com/image.jpg"
+                className="block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"
+              />
+              {formData.images.length > 1 && (
+                <button 
+                  type="button" 
+                  onClick={() => removeImageField(index)} 
+                  className="text-red-500 hover:text-red-700 text-sm font-medium sm:ml-2 sm:whitespace-nowrap"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
         <button type="button" onClick={addImageField} className="mt-2 text-sm text-purple-600 hover:text-purple-800">Add Another Image</button>
          <p className="mt-1 text-xs text-gray-500">Enter direct URLs for product images.</p>
       </div>
       
-      <div>
-        <label htmlFor="category" className="block text-sm font-medium text-gray-700">Category</label>
-        <input type="text" name="category" id="category" value={formData.category} onChange={handleChange} required className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"/>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label htmlFor="category" className="block text-sm font-medium text-gray-700">Category</label>
+          <input type="text" name="category" id="category" value={formData.category} onChange={handleChange} required className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"/>
+        </div>
+
+        <div>
+          <label htmlFor="stock" className="block text-sm font-medium text-gray-700">Stock</label>
+          <input type="number" name="stock" id="stock" value={formData.stock} onChange={handleChange} required className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"/>
+        </div>
       </div>
 
-      <div>
-        <label htmlFor="sizes" className="block text-sm font-medium text-gray-700">Sizes (comma-separated)</label>
-        <input type="text" name="sizes" id="sizes" value={formData.sizes.join(', ')} onChange={(e) => handleArrayChange(e, 'sizes')} className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"/>
-      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label htmlFor="sizes" className="block text-sm font-medium text-gray-700">Sizes (comma-separated)</label>
+          <input type="text" name="sizes" id="sizes" value={formData.sizes.join(', ')} onChange={(e) => handleArrayChange(e, 'sizes')} className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"/>
+        </div>
 
-      <div>
-        <label htmlFor="colors" className="block text-sm font-medium text-gray-700">Colors (comma-separated)</label>
-        <input type="text" name="colors" id="colors" value={formData.colors.join(', ')} onChange={(e) => handleArrayChange(e, 'colors')} className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"/>
-      </div>
-
-      <div>
-        <label htmlFor="stock" className="block text-sm font-medium text-gray-700">Stock</label>
-        <input type="number" name="stock" id="stock" value={formData.stock} onChange={handleChange} required className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"/>
+        <div>
+          <label htmlFor="colors" className="block text-sm font-medium text-gray-700">Colors (comma-separated)</label>
+          <input type="text" name="colors" id="colors" value={formData.colors.join(', ')} onChange={(e) => handleArrayChange(e, 'colors')} className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"/>
+        </div>
       </div>
 
       <div className="flex items-center">
@@ -196,11 +210,11 @@ export default function ProductForm({ initialData, onSubmit, isEditing = false }
         <label htmlFor="featured" className="ml-2 block text-sm text-gray-900">Featured Product</label>
       </div>
 
-      <div className="flex justify-end space-x-3">
+      <div className="flex flex-col sm:flex-row justify-end space-y-3 sm:space-y-0 sm:space-x-3 pt-4 border-t border-gray-200">
         <button
             type="button"
             onClick={() => router.back()}
-            className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded transition duration-150 ease-in-out"
+            className="w-full sm:w-auto bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded transition duration-150 ease-in-out"
             disabled={loading}
         >
             Cancel
@@ -208,7 +222,7 @@ export default function ProductForm({ initialData, onSubmit, isEditing = false }
         <button 
           type="submit" 
           disabled={loading}
-          className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out disabled:opacity-50"
+          className="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out disabled:opacity-50"
         >
           {loading ? (isEditing ? 'Saving...' : 'Adding...') : (isEditing ? 'Save Changes' : 'Add Product')}
         </button>

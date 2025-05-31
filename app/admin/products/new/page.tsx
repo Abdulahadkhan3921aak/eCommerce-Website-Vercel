@@ -27,13 +27,13 @@ export default function NewProductPage() {
   return (
     <div className="min-h-screen bg-gray-100">
       <Header />
-      <main className="max-w-3xl mx-auto py-6 sm:px-6 lg:px-8">
+      <main className="max-w-3xl mx-auto py-4 sm:py-6 px-4 sm:px-6 lg:px-8">
         <div className="mb-4">
-            <Link href="/admin/products" className="text-purple-600 hover:text-purple-800 hover:underline">
+            <Link href="/admin/products" className="text-purple-600 hover:text-purple-800 hover:underline text-sm sm:text-base">
                 &larr; Back to Products
             </Link>
         </div>
-        <h1 className="text-2xl font-semibold text-gray-900 mb-6">Add New Product</h1>
+        <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 mb-4 sm:mb-6">Add New Product</h1>
         <ProductForm onSubmit={handleSubmit} />
       </main>
     </div>

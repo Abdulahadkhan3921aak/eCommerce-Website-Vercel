@@ -5,6 +5,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { useCart } from '@/lib/contexts/CartContext'
 import { SignInButton, SignedIn, SignedOut, UserButton } from "@clerk/nextjs"
+import Header from "@/components/Header"
 
 interface Product {
   _id: string
@@ -29,7 +30,7 @@ export default function ProductClient({ product }: Props) {
   const [selectedColor, setSelectedColor] = useState('')
   const [quantity, setQuantity] = useState(1)
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
-  
+
   const { addToCart } = useCart()
 
   // Set default selections when product loads
@@ -49,23 +50,9 @@ export default function ProductClient({ product }: Props) {
     return (
       <div className="min-h-screen bg-white">
         {/* Header */}
-        <header className="bg-white shadow-sm border-b border-gray-100">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <Link href="/" className="text-2xl font-bold text-gray-900">
-                Jewelry Store
-              </Link>
-              <nav className="hidden md:flex space-x-8">
-                <Link href="/products" className="text-gray-700 hover:text-purple-600 transition-colors">
-                  Products
-                </Link>
-                <Link href="/cart" className="text-gray-700 hover:text-purple-600 transition-colors">
-                  Cart
-                </Link>
-              </nav>
-            </div>
-          </div>
-        </header>
+        <Header />
+
+        {/* Product Not Found */}
 
         <div className="flex items-center justify-center min-h-[60vh]">
           <div className="text-center">
@@ -81,34 +68,7 @@ export default function ProductClient({ product }: Props) {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-100">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <Link href="/" className="text-xl sm:text-2xl font-bold text-gray-900">
-              Jewelry Store
-            </Link>
-            <nav className="hidden md:flex space-x-8">
-              <Link href="/products" className="text-gray-700 hover:text-purple-600 transition-colors">
-                Products
-              </Link>
-              <Link href="/cart" className="text-gray-700 hover:text-purple-600 transition-colors">
-                Cart
-              </Link>
-            </nav>
-            <div className="flex items-center space-x-4">
-              <SignedOut>
-                <SignInButton mode="modal">
-                  <button className="btn-primary text-sm sm:text-base px-3 sm:px-4 py-1.5 sm:py-2">Sign In</button>
-                </SignInButton>
-              </SignedOut>
-              <SignedIn>
-                <UserButton afterSignOutUrl="/" />
-              </SignedIn>
-            </div>
-          </div>
-        </div>
-      </header>
+      <Header />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
         {/* Breadcrumb */}
@@ -140,9 +100,8 @@ export default function ProductClient({ product }: Props) {
                   <button
                     key={index}
                     onClick={() => setSelectedImageIndex(index)}
-                    className={`aspect-square bg-gray-100 rounded-md overflow-hidden border-2 ${
-                      selectedImageIndex === index ? 'border-purple-600' : 'border-transparent'
-                    }`}
+                    className={`aspect-square bg-gray-100 rounded-md overflow-hidden border-2 ${selectedImageIndex === index ? 'border-purple-600' : 'border-transparent'
+                      }`}
                   >
                     <Image
                       src={image}
@@ -160,7 +119,7 @@ export default function ProductClient({ product }: Props) {
           {/* Product Info */}
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4">{product.name}</h1>
-            
+
             {/* Rating */}
             {product.rating > 0 && (
               <div className="flex items-center mb-4">
@@ -168,9 +127,8 @@ export default function ProductClient({ product }: Props) {
                   {[...Array(5)].map((_, i) => (
                     <svg
                       key={i}
-                      className={`h-4 w-4 sm:h-5 sm:w-5 ${
-                        i < Math.floor(product.rating) ? 'text-yellow-400' : 'text-gray-200'
-                      }`}
+                      className={`h-4 w-4 sm:h-5 sm:w-5 ${i < Math.floor(product.rating) ? 'text-yellow-400' : 'text-gray-200'
+                        }`}
                       fill="currentColor"
                       viewBox="0 0 20 20"
                     >
@@ -198,11 +156,10 @@ export default function ProductClient({ product }: Props) {
                     <button
                       key={size}
                       onClick={() => setSelectedSize(size)}
-                      className={`py-2 px-3 text-sm border rounded-md ${
-                        selectedSize === size
-                          ? 'border-purple-600 bg-purple-50 text-purple-600'
-                          : 'border-gray-300 text-gray-700 hover:border-purple-600'
-                      }`}
+                      className={`py-2 px-3 text-sm border rounded-md ${selectedSize === size
+                        ? 'border-purple-600 bg-purple-50 text-purple-600'
+                        : 'border-gray-300 text-gray-700 hover:border-purple-600'
+                        }`}
                     >
                       {size}
                     </button>
@@ -220,11 +177,10 @@ export default function ProductClient({ product }: Props) {
                     <button
                       key={color}
                       onClick={() => setSelectedColor(color)}
-                      className={`py-2 px-4 text-sm border rounded-md ${
-                        selectedColor === color
-                          ? 'border-purple-600 bg-purple-50 text-purple-600'
-                          : 'border-gray-300 text-gray-700 hover:border-purple-600'
-                      }`}
+                      className={`py-2 px-4 text-sm border rounded-md ${selectedColor === color
+                        ? 'border-purple-600 bg-purple-50 text-purple-600'
+                        : 'border-gray-300 text-gray-700 hover:border-purple-600'
+                        }`}
                     >
                       {color}
                     </button>
@@ -264,7 +220,7 @@ export default function ProductClient({ product }: Props) {
               >
                 {product.stock === 0 ? 'Out of Stock' : 'Add to Cart'}
               </button>
-              
+
               <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4">
                 <Link href="/cart" className="flex-1 btn-secondary text-center py-3">
                   View Cart

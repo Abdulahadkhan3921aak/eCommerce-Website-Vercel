@@ -37,9 +37,10 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider>
-      <html lang="en">
+      <html lang="en" suppressHydrationWarning>
         <body
-          className={`${geistSans.variable} ${geistMono.variable} antialiased bg-white`}
+          className={`${geistSans.variable} ${geistMono.variable} antialiased bg-white text-gray-900`}
+          suppressHydrationWarning
         >
           <CartProvider>
             {children}

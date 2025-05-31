@@ -2,34 +2,53 @@
 
 import { useState } from 'react'
 import { useCart } from '@/lib/contexts/CartContext'
+import { useAuth } from '@clerk/nextjs'
+
+interface Product {
+  _id: string
+  name: string
+  price: number
+  salePrice?: number
+  images: string[]
+  category: string
+}
 
 interface AddToCartButtonProps {
-  product: any
+  product: Product
   quantity?: number
-  size?: string
-  color?: string
   className?: string
-  disabled?: boolean
+  children?: React.ReactNode
 }
 
 export default function AddToCartButton({
   product,
   quantity = 1,
-  size,
-  color,
-  className = '',
-  disabled = false
+  className = 'btn-primary w-full',
+  children = 'Add to Cart'
 }: AddToCartButtonProps) {
   const [isAdding, setIsAdding] = useState(false)
   const { addToCart } = useCart()
+  const { isSignedIn } = useAuth()
 
   const handleAddToCart = async () => {
-    if (disabled || !product) return
-    
+    if (!isSignedIn) {
+      alert('Please sign in to add items to cart')
+      return
+    }
+
     setIsAdding(true)
     try {
-      addToCart(product, quantity, size, color)
-      // You could add a toast notification here
+      const cartItem = {
+        _id: product._id,
+        name: product.name,
+        price: product.price,
+        salePrice: product.salePrice,
+        effectivePrice: product.salePrice || product.price,
+        images: product.images,
+        category: product.category
+      }
+
+      await addToCart(cartItem, quantity)
     } catch (error) {
       console.error('Error adding to cart:', error)
     } finally {
@@ -40,8 +59,8 @@ export default function AddToCartButton({
   return (
     <button
       onClick={handleAddToCart}
-      disabled={disabled || isAdding}
-      className={`btn-primary ${className} disabled:opacity-50 disabled:cursor-not-allowed`}
+      disabled={isAdding}
+      className={`${className} ${isAdding ? 'opacity-50 cursor-not-allowed' : ''}`}
     >
       {isAdding ? (
         <div className="flex items-center justify-center">
@@ -49,7 +68,7 @@ export default function AddToCartButton({
           Adding...
         </div>
       ) : (
-        'Add to Cart'
+        children
       )}
     </button>
   )

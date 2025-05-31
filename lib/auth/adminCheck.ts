@@ -55,3 +55,27 @@ export async function requireAdmin() {
 
   return true
 }
+
+export async function requirePermission(permission: string) {
+  try {
+    const user = await currentUser()
+
+    if (!user) {
+      throw new Error('Authentication required')
+    }
+
+    // Check Clerk metadata for admin role
+    const userRole = user.privateMetadata?.role as string
+
+    if (userRole !== 'admin' && userRole !== 'owner') {
+      throw new Error('Admin access required')
+    }
+
+    // For now, if user is admin or owner, they have all permissions
+    // You can extend this logic based on specific permission requirements
+    return true
+  } catch (error) {
+    console.error('Error checking permission:', error)
+    throw error
+  }
+}
