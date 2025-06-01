@@ -4,7 +4,6 @@ import { useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useCart } from '@/lib/contexts/CartContext'
-import { SignInButton, SignedIn, SignedOut, UserButton } from "@clerk/nextjs"
 import Header from "@/components/Header"
 
 interface Product {
@@ -12,6 +11,12 @@ interface Product {
   name: string
   description: string
   price: number
+  salePrice?: number
+  saleConfig?: {
+    isOnSale: boolean
+    saleType: 'percentage' | 'amount'
+    saleValue: number
+  }
   images: string[]
   category: string
   sizes?: string[]
@@ -140,7 +145,14 @@ export default function ProductClient({ product }: Props) {
               </div>
             )}
 
-            <p className="text-2xl sm:text-3xl font-bold text-gray-900 mb-6">${product.price}</p>
+            <p className="text-2xl sm:text-3xl font-bold text-gray-900 mb-6">{product.salePrice ? (
+              <>
+                <span className="text-sm text-gray-500 line-through">${product.price}</span>
+                <span className="text-lg sm:text-xl font-bold text-red-600">${product.salePrice}</span>
+              </>
+            ) : (
+              <span className="text-lg sm:text-xl font-bold text-gray-900">${product.price}</span>
+            )}</p>
 
             <div className="mb-6">
               <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-2">Description</h3>

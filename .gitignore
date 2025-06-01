@@ -137,3 +137,6 @@ dist
 
 # some local folders
 others/
+
+# clerk configuration (can include secrets)
+/.clerk/

@@ -1,6 +1,9 @@
+packages:
+  - .
+
 ignoredBuiltDependencies:
-  - '@tailwindcss/oxide'
+  - "@tailwindcss/oxide"
   - sharp
   - unrs-resolver
 onlyBuiltDependencies:
-  - '@clerk/shared'
+  - "@clerk/shared"

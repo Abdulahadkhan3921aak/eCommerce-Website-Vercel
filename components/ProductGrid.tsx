@@ -8,6 +8,12 @@ interface Product {
   name: string
   description: string
   price: number
+  salePrice?: number
+  saleConfig?: {
+    isOnSale: boolean
+    saleType: 'percentage' | 'amount'
+    saleValue: number
+  }
   images: string[]
   category: string
   rating: number
@@ -44,7 +50,14 @@ export default function ProductGrid({ products }: ProductGridProps) {
               <h3 className="font-semibold text-base sm:text-lg mb-2 line-clamp-2">{product.name}</h3>
               <p className="text-gray-600 text-sm mb-2 line-clamp-2">{product.description}</p>
               <div className="flex items-center justify-between">
-                <span className="text-lg sm:text-xl font-bold text-blue-600">${product.price}</span>
+                <span className="text-lg sm:text-xl font-bold text-blue-600">{product.salePrice ? (
+                  <>
+                    <span className="text-sm text-gray-500 line-through">${product.price}</span>
+                    <span className="text-lg sm:text-xl font-bold text-red-600">${product.salePrice}</span>
+                  </>
+                ) : (
+                  <span className="text-lg sm:text-xl font-bold text-gray-900">${product.price}</span>
+                )} </span>
                 <div className="flex items-center">
                   <span className="text-yellow-400">★</span>
                   <span className="text-xs sm:text-sm text-gray-600 ml-1">{product.rating} ({product.reviews})</span>

@@ -11,6 +11,12 @@ interface Product {
   name: string
   description: string
   price: number
+  salePrice?: number
+  saleConfig?: {
+    isOnSale: boolean
+    saleType: 'percentage' | 'amount'
+    saleValue: number
+  }
   images: string[]
   category: string
   sizes?: string[]
@@ -167,7 +173,7 @@ export default function ProductsPage() {
                       </svg>
                     </button>
                   </div>
-                  
+
                   {/* Mobile Filters Content */}
                   <div className="space-y-6">
                     {/* Search */}
@@ -446,7 +452,14 @@ export default function ProductsPage() {
                     {/* Price and Actions */}
                     <div className="flex items-center justify-between">
                       <div>
-                        <span className="text-lg sm:text-xl font-bold text-gray-900">${product.price}</span>
+                        <span className="text-lg sm:text-xl font-bold text-gray-900">{product.salePrice ? (
+                          <>
+                            <span className="text-sm text-gray-500 line-through">${product.price}</span>
+                            <span className="text-lg sm:text-xl font-bold text-red-600">${product.salePrice}</span>
+                          </>
+                        ) : (
+                          <span className="text-lg sm:text-xl font-bold text-gray-900">${product.price}</span>
+                        )}</span>
                         {product.stock > 0 && product.stock <= 5 && (
                           <p className="text-xs text-orange-600 font-medium">Only {product.stock} left!</p>
                         )}
