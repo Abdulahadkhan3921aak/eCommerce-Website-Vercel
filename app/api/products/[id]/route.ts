@@ -9,7 +9,8 @@ export async function GET(
   try {
     await dbConnect()
 
-    const product = await Product.findById(params.id)
+    const { id } = await params
+    const product = await Product.findById(id)
 
     if (!product) {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 })
@@ -54,7 +55,7 @@ export async function PUT(
   try {
     await dbConnect()
 
-    const productId = params.id
+    const { id } = await params
     const body = await request.json()
 
     // Ensure slug is not updated if it's part of the body for an existing product
@@ -63,7 +64,7 @@ export async function PUT(
       delete body.slug;
     }
 
-    const updatedProduct = await Product.findByIdAndUpdate(productId, body, {
+    const updatedProduct = await Product.findByIdAndUpdate(id, body, {
       new: true, // Return the updated document
       runValidators: true, // Ensure schema validations are run
     })
@@ -94,8 +95,8 @@ export async function DELETE(
   try {
     await dbConnect()
 
-    const productId = params.id
-    const deletedProduct = await Product.findByIdAndDelete(productId)
+    const { id } = await params
+    const deletedProduct = await Product.findByIdAndDelete(id)
 
     if (!deletedProduct) {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 })

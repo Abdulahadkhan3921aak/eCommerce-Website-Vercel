@@ -3,18 +3,19 @@
 import { useState } from 'react'
 import { useCart } from '@/lib/contexts/CartContext'
 import { useAuth } from '@clerk/nextjs'
-
-interface Product {
-  _id: string
-  name: string
-  price: number
-  salePrice?: number
-  images: string[]
-  category: string
-}
+import { Product } from '@/models/Product'
 
 interface AddToCartButtonProps {
   product: Product
+  selectedUnit?: {
+    unitId: string
+    size?: string
+    color?: string
+    stock: number
+    price: number
+    salePrice?: number
+    images?: string[]
+  }
   quantity?: number
   className?: string
   children?: React.ReactNode
@@ -22,6 +23,7 @@ interface AddToCartButtonProps {
 
 export default function AddToCartButton({
   product,
+  selectedUnit,
   quantity = 1,
   className = 'btn-primary w-full',
   children = 'Add to Cart'
@@ -36,37 +38,112 @@ export default function AddToCartButton({
       return
     }
 
+    // Validate product data before proceeding
+    if (!product) {
+      console.error('AddToCartButton: Product is null or undefined')
+      return
+    }
+
+    if (!product._id) {
+      console.error('AddToCartButton: Product missing _id', product)
+      return
+    }
+
+    if (!product.name) {
+      console.error('AddToCartButton: Product missing name', product)
+      return
+    }
+
+    if (typeof product.price !== 'number' || product.price < 0) {
+      console.error('AddToCartButton: Invalid product price', product.price)
+      return
+    }
+
+    if (!Array.isArray(product.images)) {
+      console.error('AddToCartButton: Product images should be an array', product.images)
+      return
+    }
+
     setIsAdding(true)
     try {
-      const cartItem = {
-        _id: product._id,
-        name: product.name,
-        price: product.price,
-        salePrice: product.salePrice,
-        effectivePrice: product.salePrice || product.price,
-        images: product.images,
-        category: product.category
-      }
+      if (selectedUnit) {
+        // Validate selectedUnit data
+        if (!selectedUnit.unitId) {
+          console.error('AddToCartButton: Selected unit missing unitId')
+          return
+        }
 
-      await addToCart(cartItem, quantity)
+        // Calculate the effective price considering both product and unit sales
+        const effectivePrice = getUnitEffectivePrice(product, selectedUnit)
+
+        // Use effective price for the cart
+        const productWithUnitPrice = {
+          ...product,
+          price: selectedUnit.price, // Original unit price
+          salePrice: effectivePrice !== selectedUnit.price ? effectivePrice : undefined // Sale price if different
+        }
+
+        addToCart(productWithUnitPrice, quantity, selectedUnit.size, selectedUnit.color, selectedUnit.unitId)
+      } else if (product.units && Array.isArray(product.units) && product.units.length > 0) {
+        // Find the first available unit
+        const availableUnit = product.units.find(unit =>
+          unit &&
+          typeof unit.stock === 'number' &&
+          unit.stock > 0 &&
+          unit.unitId
+        )
+
+        if (availableUnit) {
+          const effectivePrice = getUnitEffectivePrice(product, availableUnit)
+          const productWithUnitPrice = {
+            ...product,
+            price: availableUnit.price,
+            salePrice: effectivePrice !== availableUnit.price ? effectivePrice : undefined
+          }
+          addToCart(productWithUnitPrice, quantity, availableUnit.size, availableUnit.color, availableUnit.unitId)
+        } else {
+          console.warn('AddToCartButton: No available units found')
+          alert('Product is out of stock')
+        }
+      } else {
+        // Legacy product without units - use product-level sale
+        const effectivePrice = getProductDisplayPrice(product)
+        const productWithSale = {
+          ...product,
+          salePrice: effectivePrice !== product.price ? effectivePrice : undefined
+        }
+        const defaultUnitId = `unit-${product._id}-default`
+        addToCart(productWithSale, quantity, undefined, undefined, defaultUnitId)
+      }
     } catch (error) {
-      console.error('Error adding to cart:', error)
+      console.error('AddToCartButton: Error in handleAddToCart:', error)
+      console.error('Product data:', product)
+      console.error('Selected unit:', selectedUnit)
+      console.error('Quantity:', quantity)
     } finally {
       setIsAdding(false)
     }
   }
 
+  const isOutOfStock = selectedUnit
+    ? (typeof selectedUnit.stock === 'number' && selectedUnit.stock === 0)
+    : (product.units && Array.isArray(product.units) && product.units.length > 0)
+      ? product.units.every(unit => typeof unit.stock === 'number' && unit.stock === 0)
+      : (typeof (product.totalStock || product.stock) === 'number' && (product.totalStock || product.stock) === 0)
+
   return (
     <button
       onClick={handleAddToCart}
-      disabled={isAdding}
-      className={`${className} ${isAdding ? 'opacity-50 cursor-not-allowed' : ''}`}
+      disabled={isAdding || isOutOfStock}
+      className={`${className} ${isAdding || isOutOfStock ? 'opacity-50 cursor-not-allowed' : ''}`}
     >
       {isAdding ? (
         <div className="flex items-center justify-center">
           <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
           Adding...
         </div>
+      ) : isOutOfStock ? (
+        'Out of Stock'
       ) : (
         children
       )}

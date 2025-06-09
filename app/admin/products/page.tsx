@@ -3,20 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
-
-interface Product {
-  _id: string
-  name: string
-  price: number
-  salePrice?: number
-  category: string
-  stock: number
-  saleConfig?: {
-    isOnSale: boolean
-    saleType: 'percentage' | 'amount'
-    saleValue: number
-  }
-}
+import { Product } from '@/models/Product'
 
 export default function AdminProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
@@ -284,7 +271,7 @@ export default function AdminProductsPage() {
                 {(bulkAction === 'setPrice' || bulkAction === 'setSale') && (
                   <div>
                     <label htmlFor="bulkValue" className="block text-sm font-medium text-gray-700">
-                      {bulkAction === 'setSale' 
+                      {bulkAction === 'setSale'
                         ? `${saleType === 'percentage' ? 'Percentage' : 'Amount'}`
                         : 'Price'}
                     </label>
@@ -293,7 +280,7 @@ export default function AdminProductsPage() {
                       id="bulkValue"
                       value={bulkValue}
                       onChange={(e) => setBulkValue(e.target.value)}
-                      placeholder={bulkAction === 'setSale' 
+                      placeholder={bulkAction === 'setSale'
                         ? saleType === 'percentage' ? 'e.g., 20' : 'e.g., 10.00'
                         : 'Enter price'}
                       className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2 text-gray-900"
@@ -360,7 +347,12 @@ export default function AdminProductsPage() {
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{product.category}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                           <div className="flex items-center gap-2">
-                            {product.salePrice ? (
+                            {product.units && product.units.length > 0 ? (
+                              <div className="text-xs">
+                                <div className="font-medium">Units: {product.units.length}</div>
+                                <div>Price range: ${Math.min(...product.units.map(u => u.price)).toFixed(2)} - ${Math.max(...product.units.map(u => u.price)).toFixed(2)}</div>
+                              </div>
+                            ) : product.salePrice ? (
                               <>
                                 <span className="line-through text-gray-400">${product.price.toFixed(2)}</span>
                                 <span className="text-red-600 font-medium">${product.salePrice.toFixed(2)}</span>
@@ -371,11 +363,20 @@ export default function AdminProductsPage() {
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {product.saleConfig?.isOnSale ? (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                              {product.saleConfig.saleValue}
-                              {product.saleConfig.saleType === 'percentage' ? '%' : '$'} off
-                            </span>
+                          {product.saleConfig?.isOnSale || product.units?.some(u => u.saleConfig?.isOnSale) ? (
+                            <div className="space-y-1">
+                              {product.saleConfig?.isOnSale && (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                  Product: {product.saleConfig.saleValue}
+                                  {product.saleConfig.saleType === 'percentage' ? '%' : '$'} off
+                                </span>
+                              )}
+                              {product.units?.some(u => u.saleConfig?.isOnSale) && (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                  Unit sales
+                                </span>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-gray-400">No sale</span>
                           )}
@@ -408,11 +409,10 @@ export default function AdminProductsPage() {
               </div>
             ) : (
               filteredProducts.map((product) => (
-                <div 
-                  key={product._id} 
-                  className={`bg-white p-4 rounded-lg shadow border border-gray-200 ${
-                    selectedProductIds.has(product._id) ? 'ring-2 ring-purple-200 bg-purple-50' : ''
-                  }`}
+                <div
+                  key={product._id}
+                  className={`bg-white p-4 rounded-lg shadow border border-gray-200 ${selectedProductIds.has(product._id) ? 'ring-2 ring-purple-200 bg-purple-50' : ''
+                    }`}
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center space-x-3">
@@ -428,8 +428,8 @@ export default function AdminProductsPage() {
                       </div>
                     </div>
                     <div className="flex space-x-2">
-                      <Link 
-                        href={`/admin/products/edit/${product._id}`} 
+                      <Link
+                        href={`/admin/products/edit/${product._id}`}
                         className="text-purple-600 hover:text-purple-900 text-sm font-medium"
                       >
                         Edit
@@ -442,12 +442,17 @@ export default function AdminProductsPage() {
                       </button>
                     </div>
                   </div>
-                  
+
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
                       <span className="text-gray-500">Price:</span>
                       <div className="flex items-center gap-2">
-                        {product.salePrice ? (
+                        {product.units && product.units.length > 0 ? (
+                          <div className="text-xs">
+                            <div>Units: {product.units.length}</div>
+                            <div>${Math.min(...product.units.map(u => u.price)).toFixed(2)} - ${Math.max(...product.units.map(u => u.price)).toFixed(2)}</div>
+                          </div>
+                        ) : product.salePrice ? (
                           <>
                             <span className="line-through text-gray-400">${product.price.toFixed(2)}</span>
                             <span className="text-red-600 font-medium">${product.salePrice.toFixed(2)}</span>
@@ -463,11 +468,20 @@ export default function AdminProductsPage() {
                     </div>
                     <div className="col-span-2">
                       <span className="text-gray-500">Sale:</span>
-                      {product.saleConfig?.isOnSale ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 ml-1">
-                          {product.saleConfig.saleValue}
-                          {product.saleConfig.saleType === 'percentage' ? '%' : '$'} off
-                        </span>
+                      {product.saleConfig?.isOnSale || product.units?.some(u => u.saleConfig?.isOnSale) ? (
+                        <div className="space-y-1">
+                          {product.saleConfig?.isOnSale && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 ml-1">
+                              Product: {product.saleConfig.saleValue}
+                              {product.saleConfig.saleType === 'percentage' ? '%' : '$'} off
+                            </span>
+                          )}
+                          {product.units?.some(u => u.saleConfig?.isOnSale) && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800 ml-1">
+                              Unit sales
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-gray-400 ml-1">No sale</span>
                       )}

@@ -1,0 +1,135 @@
+.product-grid-container {
+    padding: 40px 60px;
+    /* Increased padding, reduced left/right borders */
+    max-width: 1400px;
+    /* Increased max width for more space */
+    margin: 0 auto;
+    /* Center the container */
+}
+
+.product-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 30px;
+    /* Increased gap between products */
+    margin-bottom: 60px;
+    /* More space before pagination */
+}
+
+/* Responsive design */
+@media (max-width: 1400px) {
+    .product-grid-container {
+        padding: 30px 40px;
+        /* Adjusted for smaller screens */
+    }
+}
+
+@media (max-width: 1200px) {
+    .product-grid {
+        grid-template-columns: repeat(4, 1fr);
+        gap: 25px;
+    }
+
+    .product-grid-container {
+        padding: 25px 30px;
+    }
+}
+
+@media (max-width: 992px) {
+    .product-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+    }
+
+    .product-grid-container {
+        padding: 20px 25px;
+    }
+}
+
+@media (max-width: 768px) {
+    .product-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 20px;
+    }
+
+    .product-grid-container {
+        padding: 20px 20px;
+    }
+}
+
+@media (max-width: 480px) {
+    .product-grid {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+
+    .product-grid-container {
+        padding: 15px 15px;
+    }
+}
+
+/* Pagination Styles */
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    /* Increased gap between pagination buttons */
+    margin: 60px 0 40px 0;
+    /* More space above pagination */
+    flex-wrap: wrap;
+}
+
+.pagination-btn,
+.pagination-number {
+    padding: 12px 16px;
+    /* Increased button padding */
+    border: 1px solid #ddd;
+    background: white;
+    color: #333;
+    cursor: pointer;
+    border-radius: 6px;
+    /* Slightly more rounded */
+    transition: all 0.3s ease;
+    min-width: 44px;
+    /* Larger minimum width */
+    text-align: center;
+    font-size: 14px;
+}
+
+.pagination-btn:hover:not(:disabled),
+.pagination-number:hover {
+    background: #f5f5f5;
+    border-color: #007bff;
+}
+
+.pagination-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+    background: #f9f9f9;
+}
+
+.pagination-number.active {
+    background: #007bff;
+    color: white;
+    border-color: #007bff;
+}
+
+.pagination-ellipsis {
+    padding: 8px 4px;
+    color: #666;
+}
+
+@media (max-width: 480px) {
+    .pagination {
+        gap: 8px;
+        margin: 40px 0 30px 0;
+    }
+
+    .pagination-btn,
+    .pagination-number {
+        padding: 8px 12px;
+        font-size: 14px;
+        min-width: 36px;
+    }
+}

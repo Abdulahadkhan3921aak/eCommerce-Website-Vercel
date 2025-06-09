@@ -189,7 +189,11 @@ export default function OrdersPage() {
                   <div className="mt-4 pt-4 border-t border-gray-200 flex justify-between">
                     <div className="text-sm text-gray-600">
                       <p>Subtotal: ${order.subtotal.toFixed(2)}</p>
-                      <p>Shipping: {order.shippingCost === 0 ? 'Free' : `$${order.shippingCost.toFixed(2)}`}</p>
+                      <p>Shipping: {order.shippingCost === 0 ? (
+                        <span className="text-green-600 font-medium">FREE</span>
+                      ) : (
+                        `$${order.shippingCost.toFixed(2)}`
+                      )}</p>
                       <p>Tax: ${order.tax.toFixed(2)}</p>
                     </div>
                     <div className="text-right">

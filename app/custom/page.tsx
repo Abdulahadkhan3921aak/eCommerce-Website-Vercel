@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Image from 'next/image'
 import Header from '@/components/Header'
 import { useCart } from '@/lib/contexts/CartContext'
+import { Product } from '@/models/Product'
 
 type JewelryCategory = 'ring' | 'necklace' | 'earring' | 'bracelet'
 
@@ -97,8 +98,8 @@ export default function CustomProductPage() {
 
   const handleSizeSelect = (sizeId: string) => {
     if (allowMultipleSizes) {
-      setSelectedSizes(prev => 
-        prev.includes(sizeId) 
+      setSelectedSizes(prev =>
+        prev.includes(sizeId)
           ? prev.filter(id => id !== sizeId)
           : [...prev, sizeId]
       )
@@ -109,19 +110,19 @@ export default function CustomProductPage() {
 
   const calculatePrice = () => {
     if (!selectedCategory) return 0
-    
+
     let price = categoryInfo[selectedCategory].basePrice
-    
+
     // Add cost for multiple sizes
     if (selectedSizes.length > 1) {
       price += (selectedSizes.length - 1) * 10
     }
-    
+
     // Add engraving cost
     if (engraveEnabled && (engraveName || customText)) {
       price += 15
     }
-    
+
     return price * quantity
   }
 
@@ -141,19 +142,37 @@ export default function CustomProductPage() {
       return size?.displayName || sizeId
     }).join(', ')
 
-    const customProduct = {
+    const customProduct: Product = {
       _id: `custom-${selectedCategory}-${Date.now()}`,
       name: `${categoryInfo[selectedCategory].title}${engraveEnabled ? ' (Engraved)' : ''}`,
+      description: `Custom ${categoryInfo[selectedCategory].title}`,
       price: calculatePrice(),
-      effectivePrice: calculatePrice(),
-      category: 'custom',
       images: [categoryInfo[selectedCategory].image],
+      category: 'custom',
+      stock: 999, // Custom products have high stock
+      totalStock: 999,
+      featured: false,
+      rating: 5,
+      reviews: 0,
       customization: {
         category: selectedCategory,
         sizes: selectedSizeNames,
         engraving: engraveEnabled ? (engraveName || customText) : null,
         quantity
-      }
+      },
+      // Add units structure for custom products
+      units: selectedSizes.map(sizeId => ({
+        unitId: `custom-unit-${sizeId}-${Date.now()}`,
+        size: categorySizes[selectedCategory].find(s => s.id === sizeId)?.displayName,
+        stock: 999,
+        price: calculatePrice(),
+        images: [categoryInfo[selectedCategory].image], // Use category image for custom units
+        saleConfig: {
+          isOnSale: false,
+          saleType: 'percentage' as const,
+          saleValue: 0
+        }
+      }))
     }
 
     addToCart(customProduct, 1)
@@ -163,17 +182,15 @@ export default function CustomProductPage() {
   const getRingSizeVisual = (size: SizeOption, isSelected: boolean) => (
     <div
       key={size.id}
-      className={`relative cursor-pointer transition-all duration-200 ${
-        isSelected ? 'transform scale-110' : 'hover:scale-105'
-      }`}
+      className={`relative cursor-pointer transition-all duration-200 ${isSelected ? 'transform scale-110' : 'hover:scale-105'
+        }`}
       onClick={() => handleSizeSelect(size.id)}
     >
       <div
-        className={`w-16 h-16 rounded-full border-4 flex items-center justify-center transition-colors ${
-          isSelected 
-            ? 'border-purple-600 bg-purple-50' 
-            : 'border-gray-300 hover:border-purple-400'
-        }`}
+        className={`w-16 h-16 rounded-full border-4 flex items-center justify-center transition-colors ${isSelected
+          ? 'border-purple-600 bg-purple-50'
+          : 'border-gray-300 hover:border-purple-400'
+          }`}
         style={{
           transform: `scale(${0.6 + (parseInt(size.name) - 4) * 0.1})`
         }}
@@ -192,11 +209,10 @@ export default function CustomProductPage() {
   const getNecklaceSizeVisual = (size: SizeOption, isSelected: boolean) => (
     <div
       key={size.id}
-      className={`cursor-pointer p-4 border-2 rounded-lg transition-all ${
-        isSelected 
-          ? 'border-purple-600 bg-purple-50' 
-          : 'border-gray-200 hover:border-purple-300'
-      }`}
+      className={`cursor-pointer p-4 border-2 rounded-lg transition-all ${isSelected
+        ? 'border-purple-600 bg-purple-50'
+        : 'border-gray-200 hover:border-purple-300'
+        }`}
       onClick={() => handleSizeSelect(size.id)}
     >
       <div className="flex items-center justify-between mb-2">
@@ -210,7 +226,7 @@ export default function CustomProductPage() {
         <span>{size.centimeters}</span>
       </div>
       <div className="mt-2">
-        <div 
+        <div
           className={`h-2 rounded-full ${isSelected ? 'bg-purple-200' : 'bg-gray-200'}`}
           style={{ width: `${(parseInt(size.name) / 24) * 100}%` }}
         />
@@ -221,17 +237,15 @@ export default function CustomProductPage() {
   const getEarringSizeVisual = (size: SizeOption, isSelected: boolean) => (
     <div
       key={size.id}
-      className={`cursor-pointer p-6 border-2 rounded-lg transition-all text-center ${
-        isSelected 
-          ? 'border-purple-600 bg-purple-50' 
-          : 'border-gray-200 hover:border-purple-300'
-      }`}
+      className={`cursor-pointer p-6 border-2 rounded-lg transition-all text-center ${isSelected
+        ? 'border-purple-600 bg-purple-50'
+        : 'border-gray-200 hover:border-purple-300'
+        }`}
       onClick={() => handleSizeSelect(size.id)}
     >
       <div
-        className={`w-8 h-8 mx-auto rounded-full border-2 mb-3 ${
-          isSelected ? 'border-purple-600 bg-purple-200' : 'border-gray-400 bg-gray-200'
-        }`}
+        className={`w-8 h-8 mx-auto rounded-full border-2 mb-3 ${isSelected ? 'border-purple-600 bg-purple-200' : 'border-gray-400 bg-gray-200'
+          }`}
         style={{
           transform: size.name === 'small' ? 'scale(0.7)' : size.name === 'large' ? 'scale(1.3)' : 'scale(1)'
         }}
@@ -247,11 +261,10 @@ export default function CustomProductPage() {
   const getBraceletSizeVisual = (size: SizeOption, isSelected: boolean) => (
     <div
       key={size.id}
-      className={`cursor-pointer p-4 border-2 rounded-lg transition-all ${
-        isSelected 
-          ? 'border-purple-600 bg-purple-50' 
-          : 'border-gray-200 hover:border-purple-300'
-      }`}
+      className={`cursor-pointer p-4 border-2 rounded-lg transition-all ${isSelected
+        ? 'border-purple-600 bg-purple-50'
+        : 'border-gray-200 hover:border-purple-300'
+        }`}
       onClick={() => handleSizeSelect(size.id)}
     >
       <div className="flex items-center justify-between mb-3">
@@ -264,9 +277,9 @@ export default function CustomProductPage() {
         <span>{size.inches}</span>
         <span>{size.centimeters}</span>
       </div>
-      <div 
+      <div
         className={`h-3 rounded-full ${isSelected ? 'bg-purple-200' : 'bg-gray-200'}`}
-        style={{ 
+        style={{
           width: `${60 + (size.name === 'xs' ? 0 : size.name === 's' ? 10 : size.name === 'm' ? 20 : size.name === 'l' ? 30 : 40)}%`,
           maxWidth: '100%'
         }}
@@ -277,7 +290,7 @@ export default function CustomProductPage() {
   return (
     <div className="min-h-screen bg-white">
       <Header />
-      
+
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold text-gray-900 mb-4">Create Custom Jewelry</h1>
@@ -351,18 +364,18 @@ export default function CustomProductPage() {
               <h3 className="text-xl font-semibold text-gray-900 mb-6">
                 Select Size{allowMultipleSizes ? 's' : ''}
               </h3>
-              
+
               {selectedCategory === 'ring' && (
                 <div className="space-y-6">
                   <div className="flex flex-wrap justify-center gap-8 py-8">
-                    {categorySizes.ring.map(size => 
+                    {categorySizes.ring.map(size =>
                       getRingSizeVisual(size, selectedSizes.includes(size.id))
                     )}
                   </div>
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <p className="text-blue-800 text-sm">
-                      <strong>Sizing Note:</strong> Ring sizes are measured by inner diameter. 
-                      If you're unsure, we recommend visiting a jewelry store for professional sizing 
+                      <strong>Sizing Note:</strong> Ring sizes are measured by inner diameter.
+                      If you're unsure, we recommend visiting a jewelry store for professional sizing
                       or using our printable ring sizer available upon request.
                     </p>
                   </div>
@@ -372,14 +385,14 @@ export default function CustomProductPage() {
               {selectedCategory === 'necklace' && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {categorySizes.necklace.map(size => 
+                    {categorySizes.necklace.map(size =>
                       getNecklaceSizeVisual(size, selectedSizes.includes(size.id))
                     )}
                   </div>
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <p className="text-blue-800 text-sm">
-                      <strong>Length Guide:</strong> Choker (14") sits at the base of neck, 
-                      Standard (18") falls just below the collarbone, Medium (20") reaches the chest area. 
+                      <strong>Length Guide:</strong> Choker (14") sits at the base of neck,
+                      Standard (18") falls just below the collarbone, Medium (20") reaches the chest area.
                       Consider your neckline and personal preference when choosing.
                     </p>
                   </div>
@@ -389,14 +402,14 @@ export default function CustomProductPage() {
               {selectedCategory === 'earring' && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {categorySizes.earring.map(size => 
+                    {categorySizes.earring.map(size =>
                       getEarringSizeVisual(size, selectedSizes.includes(size.id))
                     )}
                   </div>
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <p className="text-blue-800 text-sm">
-                      <strong>Style Note:</strong> Small earrings are perfect for everyday wear, 
-                      Medium offers classic elegance, and Large makes a bold fashion statement. 
+                      <strong>Style Note:</strong> Small earrings are perfect for everyday wear,
+                      Medium offers classic elegance, and Large makes a bold fashion statement.
                       Consider your face shape and personal style.
                     </p>
                   </div>
@@ -406,14 +419,14 @@ export default function CustomProductPage() {
               {selectedCategory === 'bracelet' && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {categorySizes.bracelet.map(size => 
+                    {categorySizes.bracelet.map(size =>
                       getBraceletSizeVisual(size, selectedSizes.includes(size.id))
                     )}
                   </div>
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <p className="text-blue-800 text-sm">
-                      <strong>Fit Guide:</strong> Measure your wrist with a flexible tape measure 
-                      and add 0.5-1 inch for comfortable fit. The bracelet should move freely 
+                      <strong>Fit Guide:</strong> Measure your wrist with a flexible tape measure
+                      and add 0.5-1 inch for comfortable fit. The bracelet should move freely
                       but not slide off your hand.
                     </p>
                   </div>
@@ -455,7 +468,7 @@ export default function CustomProductPage() {
                       <p className="text-xs text-gray-500 mt-1">Maximum 20 characters</p>
                     </div>
                   )}
-                  
+
                   {selectedCategory !== 'bracelet' && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">

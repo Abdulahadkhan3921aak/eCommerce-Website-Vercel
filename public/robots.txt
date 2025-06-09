@@ -1,0 +1,16 @@
+User-agent: *
+Allow: /
+
+# Important pages
+Allow: /products
+Allow: /custom
+Allow: /contact
+
+# Block admin and API routes
+Disallow: /admin
+Disallow: /api
+Disallow: /_next
+Disallow: /cart
+
+# Sitemap
+Sitemap: https://butterfliesbeading.com/sitemap.xml

@@ -3,19 +3,41 @@
 import { useState, useEffect, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 
+// Unified interface that supports both simple and enhanced products
 export interface ProductFormData {
   _id?: string
   name: string
   description: string
   price: number
-  salePrice?: number // Added salePrice
-  images: string[] // Array of image URLs
+  salePrice?: number
+  images: string[]
   category: string
   sizes: string[]
   colors: string[]
   stock: number
   featured: boolean
   slug: string
+  // Enhanced product support
+  units?: Array<{
+    _id?: string
+    unitId?: string
+    size?: string
+    color?: string
+    price: number
+    stock: number
+    images: string[] // Unit-specific images
+    saleConfig: {
+      isOnSale: boolean
+      saleType: 'percentage' | 'amount'
+      saleValue: number
+    }
+    sku?: string
+  }>
+  saleConfig?: {
+    isOnSale: boolean
+    saleType: 'percentage' | 'amount'
+    saleValue: number
+  }
 }
 
 interface ProductFormProps {
@@ -29,14 +51,20 @@ export default function ProductForm({ initialData, onSubmit, isEditing = false }
     name: '',
     description: '',
     price: 0,
-    salePrice: undefined, // Initialize salePrice
-    images: [''], // Start with one empty image URL field
+    salePrice: undefined,
+    images: [''],
     category: '',
     sizes: [],
     colors: [],
     stock: 0,
     featured: false,
     slug: '',
+    saleConfig: {
+      isOnSale: false,
+      saleType: 'percentage',
+      saleValue: 0
+    },
+    units: [],
     ...initialData,
   })
   const [loading, setLoading] = useState(false)
@@ -45,18 +73,36 @@ export default function ProductForm({ initialData, onSubmit, isEditing = false }
 
   useEffect(() => {
     if (initialData) {
+      // Calculate salePrice from saleConfig for backward compatibility
+      let calculatedSalePrice = initialData.salePrice
+      if (initialData.saleConfig?.isOnSale && !calculatedSalePrice) {
+        const { saleType, saleValue } = initialData.saleConfig
+        if (saleType === 'percentage') {
+          calculatedSalePrice = initialData.price * (1 - saleValue / 100)
+        } else {
+          calculatedSalePrice = Math.max(0, initialData.price - saleValue)
+        }
+      }
+
       setFormData({
         ...initialData,
-        images: initialData.images.length > 0 ? initialData.images : [''], // Ensure at least one image field
+        images: initialData.images.length > 0 ? initialData.images : [''],
         sizes: initialData.sizes || [],
         colors: initialData.colors || [],
+        salePrice: calculatedSalePrice,
+        saleConfig: initialData.saleConfig || {
+          isOnSale: !!calculatedSalePrice,
+          saleType: 'percentage',
+          saleValue: 0
+        },
+        units: initialData.units || []
       })
     }
   }, [initialData])
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target
-    
+
     if (type === 'checkbox') {
       const { checked } = e.target as HTMLInputElement
       setFormData(prev => ({ ...prev, [name]: checked }))
@@ -67,14 +113,14 @@ export default function ProductForm({ initialData, onSubmit, isEditing = false }
     }
 
     if (name === 'name' && !isEditing) { // Auto-generate slug only when creating and name changes
-        setFormData(prev => ({ ...prev, slug: value.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '') }))
+      setFormData(prev => ({ ...prev, slug: value.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '') }))
     }
   }
 
   const handleArrayChange = (e: React.ChangeEvent<HTMLInputElement>, field: 'sizes' | 'colors') => {
     setFormData(prev => ({ ...prev, [field]: e.target.value.split(',').map(s => s.trim()).filter(s => s) }))
   }
-  
+
   const handleImageChange = (index: number, value: string) => {
     const newImages = [...formData.images]
     newImages[index] = value
@@ -99,7 +145,13 @@ export default function ProductForm({ initialData, onSubmit, isEditing = false }
     try {
       const dataToSubmit = {
         ...formData,
-        images: formData.images.filter(img => img.trim() !== '') // Filter out empty image strings
+        images: formData.images.filter(img => img.trim() !== ''),
+        // Update saleConfig based on salePrice for backward compatibility
+        saleConfig: formData.salePrice ? {
+          isOnSale: true,
+          saleType: 'amount' as const,
+          saleValue: formData.price - formData.salePrice
+        } : formData.saleConfig
       };
       await onSubmit(dataToSubmit)
     } catch (err: any) {
@@ -113,17 +165,17 @@ export default function ProductForm({ initialData, onSubmit, isEditing = false }
   return (
     <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6 bg-white p-4 sm:p-8 shadow sm:rounded-lg">
       {error && <div className="mb-4 text-red-600 bg-red-100 p-3 rounded text-sm">{error}</div>}
-      
+
       <div>
         <label htmlFor="name" className="block text-sm font-medium text-gray-700">Name</label>
-        <input type="text" name="name" id="name" value={formData.name} onChange={handleChange} required className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"/>
+        <input type="text" name="name" id="name" value={formData.name} onChange={handleChange} required className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2" />
       </div>
 
       <div>
         <label htmlFor="slug" className="block text-sm font-medium text-gray-700">Slug</label>
         <input type="text" name="slug" id="slug" value={formData.slug} onChange={handleChange} required className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2 bg-gray-50" readOnly={isEditing} />
         {!isEditing && <p className="mt-1 text-xs text-gray-500">Auto-generated from name. Can be manually adjusted.</p>}
-         {isEditing && <p className="mt-1 text-xs text-gray-500">Slug cannot be changed after creation.</p>}
+        {isEditing && <p className="mt-1 text-xs text-gray-500">Slug cannot be changed after creation.</p>}
       </div>
 
       <div>
@@ -134,18 +186,18 @@ export default function ProductForm({ initialData, onSubmit, isEditing = false }
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label htmlFor="price" className="block text-sm font-medium text-gray-700">Price</label>
-          <input type="number" name="price" id="price" value={formData.price} onChange={handleChange} required step="0.01" className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"/>
+          <input type="number" name="price" id="price" value={formData.price} onChange={handleChange} required step="0.01" className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2" />
         </div>
 
         <div>
           <label htmlFor="salePrice" className="block text-sm font-medium text-gray-700">Sale Price (Optional)</label>
-          <input 
-            type="number" 
-            name="salePrice" 
-            id="salePrice" 
-            value={formData.salePrice === undefined ? '' : formData.salePrice} 
-            onChange={handleChange} 
-            step="0.01" 
+          <input
+            type="number"
+            name="salePrice"
+            id="salePrice"
+            value={formData.salePrice === undefined ? '' : formData.salePrice}
+            onChange={handleChange}
+            step="0.01"
             placeholder="e.g., 79.99"
             className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"
           />
@@ -166,9 +218,9 @@ export default function ProductForm({ initialData, onSubmit, isEditing = false }
                 className="block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"
               />
               {formData.images.length > 1 && (
-                <button 
-                  type="button" 
-                  onClick={() => removeImageField(index)} 
+                <button
+                  type="button"
+                  onClick={() => removeImageField(index)}
                   className="text-red-500 hover:text-red-700 text-sm font-medium sm:ml-2 sm:whitespace-nowrap"
                 >
                   Remove
@@ -178,49 +230,49 @@ export default function ProductForm({ initialData, onSubmit, isEditing = false }
           ))}
         </div>
         <button type="button" onClick={addImageField} className="mt-2 text-sm text-purple-600 hover:text-purple-800">Add Another Image</button>
-         <p className="mt-1 text-xs text-gray-500">Enter direct URLs for product images.</p>
+        <p className="mt-1 text-xs text-gray-500">Enter direct URLs for product images.</p>
       </div>
-      
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label htmlFor="category" className="block text-sm font-medium text-gray-700">Category</label>
-          <input type="text" name="category" id="category" value={formData.category} onChange={handleChange} required className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"/>
+          <input type="text" name="category" id="category" value={formData.category} onChange={handleChange} required className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2" />
         </div>
 
         <div>
           <label htmlFor="stock" className="block text-sm font-medium text-gray-700">Stock</label>
-          <input type="number" name="stock" id="stock" value={formData.stock} onChange={handleChange} required className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"/>
+          <input type="number" name="stock" id="stock" value={formData.stock} onChange={handleChange} required className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2" />
         </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label htmlFor="sizes" className="block text-sm font-medium text-gray-700">Sizes (comma-separated)</label>
-          <input type="text" name="sizes" id="sizes" value={formData.sizes.join(', ')} onChange={(e) => handleArrayChange(e, 'sizes')} className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"/>
+          <input type="text" name="sizes" id="sizes" value={formData.sizes.join(', ')} onChange={(e) => handleArrayChange(e, 'sizes')} className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2" />
         </div>
 
         <div>
           <label htmlFor="colors" className="block text-sm font-medium text-gray-700">Colors (comma-separated)</label>
-          <input type="text" name="colors" id="colors" value={formData.colors.join(', ')} onChange={(e) => handleArrayChange(e, 'colors')} className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"/>
+          <input type="text" name="colors" id="colors" value={formData.colors.join(', ')} onChange={(e) => handleArrayChange(e, 'colors')} className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2" />
         </div>
       </div>
 
       <div className="flex items-center">
-        <input type="checkbox" name="featured" id="featured" checked={formData.featured} onChange={handleChange} className="h-4 w-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"/>
+        <input type="checkbox" name="featured" id="featured" checked={formData.featured} onChange={handleChange} className="h-4 w-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500" />
         <label htmlFor="featured" className="ml-2 block text-sm text-gray-900">Featured Product</label>
       </div>
 
       <div className="flex flex-col sm:flex-row justify-end space-y-3 sm:space-y-0 sm:space-x-3 pt-4 border-t border-gray-200">
         <button
-            type="button"
-            onClick={() => router.back()}
-            className="w-full sm:w-auto bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded transition duration-150 ease-in-out"
-            disabled={loading}
+          type="button"
+          onClick={() => router.back()}
+          className="w-full sm:w-auto bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded transition duration-150 ease-in-out"
+          disabled={loading}
         >
-            Cancel
+          Cancel
         </button>
-        <button 
-          type="submit" 
+        <button
+          type="submit"
           disabled={loading}
           className="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out disabled:opacity-50"
         >

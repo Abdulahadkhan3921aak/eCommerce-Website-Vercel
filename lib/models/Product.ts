@@ -1,23 +1,46 @@
-import mongoose from 'mongoose'
+import mongoose, { Document, Schema } from 'mongoose';
 
-const ProductSchema = new mongoose.Schema({
-  name: {
+// Import the client-side types
+import type { Product as ProductType, ProductUnit as ProductUnitType } from '@/lib/types/product';
+
+// Server-side interfaces that extend Document for Mongoose
+export interface ProductUnit extends ProductUnitType { }
+
+export interface Product extends ProductType, Document { }
+
+const ProductUnitSchema: Schema = new Schema({
+  unitId: {
     type: String,
     required: true,
   },
-  description: {
+  size: {
     type: String,
+    required: false,
+  },
+  color: {
+    type: String,
+    required: false,
+  },
+  stock: {
+    type: Number,
     required: true,
+    min: 0,
+    default: 0,
   },
   price: {
     type: Number,
-    required: true,
+    required: [true, 'Unit price is required'],
+    min: 0,
   },
-  salePrice: { // Calculated sale price
+  salePrice: {
     type: Number,
-    optional: true,
+    required: false,
   },
-  // New sale configuration fields
+  images: {
+    type: [String],
+    required: false,
+    default: [],
+  },
   saleConfig: {
     isOnSale: {
       type: Boolean,
@@ -26,12 +49,47 @@ const ProductSchema = new mongoose.Schema({
     saleType: {
       type: String,
       enum: ['percentage', 'amount'],
-      default: 'percentage',
+      required: false,
     },
     saleValue: {
       type: Number,
-      default: 0,
+      required: false,
+      min: 0,
+      validate: {
+        validator: function (this: any, value: number) {
+          if (this.saleConfig?.isOnSale && this.saleConfig?.saleType) {
+            if (this.saleConfig.saleType === 'percentage') {
+              return value <= 100;
+            }
+            return value < this.price;
+          }
+          return true;
+        },
+        message: 'Sale value must be valid for the sale type'
+      }
     },
+  },
+  sku: {
+    type: String,
+    required: false,
+  },
+}, { _id: false });
+
+const ProductSchema: Schema = new Schema({
+  name: {
+    type: String,
+    required: [true, 'Product name is required'],
+    trim: true,
+  },
+  slug: {
+    type: String,
+    required: false,
+    unique: true,
+    sparse: true,
+  },
+  description: {
+    type: String,
+    required: [true, 'Product description is required'],
   },
   images: [{
     type: String,
@@ -39,18 +97,60 @@ const ProductSchema = new mongoose.Schema({
   }],
   category: {
     type: String,
-    required: true,
+    required: [true, 'Product category is required'],
+    enum: ['necklaces', 'bracelets', 'rings', 'earrings', 'custom'],
   },
-  sizes: [{
-    type: String,
-  }],
-  colors: [{
-    type: String,
-  }],
-  stock: {
+  sizes: [String],
+  price: {
     type: Number,
-    default: 0,
+    required: [true, 'Product price is required'],
+    min: 0,
   },
+  salePrice: {
+    type: Number,
+    required: false,
+  },
+  saleConfig: {
+    isOnSale: {
+      type: Boolean,
+      default: false,
+    },
+    saleType: {
+      type: String,
+      enum: ['percentage', 'amount'],
+      required: false,
+    },
+    saleValue: {
+      type: Number,
+      required: false,
+      min: 0,
+      validate: {
+        validator: function (this: any, value: number) {
+          if (this.saleConfig?.isOnSale && this.saleConfig?.saleType) {
+            if (this.saleConfig.saleType === 'percentage') {
+              return value <= 100;
+            }
+            return value < this.price;
+          }
+          return true;
+        },
+        message: 'Sale value must be valid for the sale type'
+      }
+    },
+  },
+  colors: [String],
+
+  totalStock: {
+    type: Number,
+    default: function () {
+      // Calculate total stock from units if they exist
+      if (this.units && this.units.length > 0) {
+        return this.units.reduce((sum, unit) => sum + (unit.stock || 0), 0);
+      }
+      return this.stock || 0; // Fallback to legacy stock field
+    },
+  },
+  units: [ProductUnitSchema],
   featured: {
     type: Boolean,
     default: false,
@@ -63,30 +163,42 @@ const ProductSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
-  slug: {
-    type: String,
-    required: true,
-    unique: true,
+  customization: {
+    type: Schema.Types.Mixed,
+    required: false,
   },
 }, {
   timestamps: true,
-})
+});
 
-// Pre-save middleware to calculate sale price
-ProductSchema.pre('save', function(next) {
-  if (this.saleConfig?.isOnSale && this.saleConfig?.saleValue > 0) {
-    if (this.saleConfig.saleType === 'percentage') {
-      this.salePrice = this.price * (1 - this.saleConfig.saleValue / 100);
-    } else if (this.saleConfig.saleType === 'amount') {
-      this.salePrice = Math.max(0, this.price - this.saleConfig.saleValue);
-    }
+// Pre-save middleware to calculate total stock
+ProductSchema.pre('save', function (next) {
+  if (this.units && this.units.length > 0) {
+    this.totalStock = this.units.reduce((total, unit) => total + (unit.stock || 0), 0);
   } else {
-    this.salePrice = undefined;
+    this.totalStock = this.stock || 0;
   }
   next();
 });
 
-// Create index for better search performance
-ProductSchema.index({ name: 'text', description: 'text' })
+// Generate unique unit IDs before saving
+ProductSchema.pre('save', function (next) {
+  if (this.units && this.units.length > 0) {
+    this.units.forEach(unit => {
+      if (!unit.unitId) {
+        unit.unitId = `${this._id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      }
+    });
+  }
+  next();
+});
 
-export default mongoose.models.Product || mongoose.model('Product', ProductSchema)
+// Add slug generation before saving
+ProductSchema.pre('save', function (next) {
+  if (this.name && !this.slug) {
+    this.slug = this.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  }
+  next();
+});
+
+export default mongoose.models.Product || mongoose.model<Product>('Product', ProductSchema);
