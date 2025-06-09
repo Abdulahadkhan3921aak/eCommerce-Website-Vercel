@@ -6,9 +6,9 @@ const CartItemSchema = new mongoose.Schema({
     ref: 'Product',
     required: true,
   },
-  unitId: { // New field to track specific unit
+  unitId: {
     type: String,
-    required: true,
+    required: false, // Make optional for legacy products
   },
   name: { type: String, required: true },
   price: { type: Number, required: true },
@@ -16,10 +16,17 @@ const CartItemSchema = new mongoose.Schema({
   effectivePrice: { type: Number, required: true },
   quantity: { type: Number, required: true, min: 1 },
   images: [{ type: String }],
+  unitImages: [{ type: String }], // Add unit-specific images
   category: { type: String, required: true },
   size: { type: String },
   color: { type: String },
-  availableStock: { type: Number, default: 0 }, // Stock for this specific unit
+  availableStock: { type: Number, default: 0 },
+  weight: { type: Number },
+  dimensions: {
+    length: { type: Number },
+    width: { type: Number },
+    height: { type: Number }
+  }
 }, { _id: false })
 
 const CartSchema = new mongoose.Schema({

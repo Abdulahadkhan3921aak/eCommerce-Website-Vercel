@@ -39,19 +39,20 @@ export async function POST(request: NextRequest) {
       // Use effectivePrice from cartItem which should already consider sales
       const actualPrice = cartItem.effectivePrice;
 
-
       const itemTotal = actualPrice * cartItem.quantity
       subtotal += itemTotal
 
       orderItems.push({
         productId: product._id,
-        unitId: cartItem.unitId, // Ensure unitId is passed from cart
-        name: cartItem.name, // Use name from cartItem as it might include variant info
-        price: actualPrice, // Store the price paid
+        unitId: cartItem.unitId,
+        name: cartItem.name,
+        price: cartItem.effectivePrice, // Use effective price (sale price if applicable)
         quantity: cartItem.quantity,
         size: cartItem.size,
         color: cartItem.color,
-        image: (cartItem.images && cartItem.images.length > 0 ? cartItem.images[0] : product.images[0]) || "/placeholder-image.png",
+        image: (cartItem.unitImages && cartItem.unitImages.length > 0 ? cartItem.unitImages[0] :
+          cartItem.images && cartItem.images.length > 0 ? cartItem.images[0] :
+            product.images[0]) || "/placeholder-image.png",
       })
     }
 

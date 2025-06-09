@@ -19,9 +19,9 @@ export interface ShippoAddressInput {
     country: string; // ISO 2-letter country code
     phone?: string;
     email?: string;
-    is_residential?: boolean; // Keep for input consistency with app
+    isResidential?: boolean; // Changed from is_residential to match SDK
     validate?: boolean; // Request validation
-    company?: string; // Added from user example
+    company?: string;
     metadata?: string; // Added from user example
 }
 
@@ -59,34 +59,32 @@ export interface ShippoParcel {
     length: string;
     width: string;
     height: string;
-    distanceUnit: 'cm' | 'in' | 'ft' | 'mm' | 'm' | 'yd'; // Changed to camelCase
+    distanceUnit: 'cm' | 'in' | 'ft' | 'mm' | 'm' | 'yd';
     weight: string;
-    massUnit: 'g' | 'oz' | 'lb' | 'kg'; // Changed to camelCase
+    massUnit: 'g' | 'oz' | 'lb' | 'kg';
     template?: string;
     metadata?: string;
 }
 
 export interface ShippoShipmentRequestData {
-    addressFrom: ShippoAddressInput; // Changed from address_from
-    addressTo: ShippoAddressInput;   // Changed from address_to
+    addressFrom: ShippoAddressInput;
+    addressTo: ShippoAddressInput;
     parcels: ShippoParcel[] | ShippoParcel;
-    shipmentDate?: string; // Changed from shipment_date (YYYY-MM-DDTHH:MM:SSZ)
+    shipmentDate?: string;
     async?: boolean;
-    carrierAccounts?: string[]; // Changed from carrier_accounts
+    carrierAccounts?: string[];
     metadata?: string;
-    // Add other relevant fields from Shippo API docs if needed
 }
 
-// Using Shippo SDK's Rate type directly or a mapped version
-// For simplicity, we'll define our expected structure based on current usage.
-export interface AppShippoRate { // Renamed to avoid conflict with imported Rate
+// Using Shippo SDK's Rate type directly
+export interface AppShippoRate {
     objectId: string;
     amount: string;
     currency: string;
     provider: string;
     providerImage75?: string;
     providerImage200?: string;
-    serviceLevel: { // Changed from servicelevel
+    servicelevel: { // Changed to match SDK
         token?: string;
         name?: string;
         terms?: string;
@@ -106,7 +104,7 @@ export interface AppShippoRate { // Renamed to avoid conflict with imported Rate
 
 export interface ShippoTransactionRequest {
     rate: string; // Shippo rate object_id
-    labelFileType?: "PDF" | "PDF_4x6" | "PNG" | "ZPLII"; // Changed from label_file_type
+    labelFileType?: "PDF" | "PDF_4x6" | "PNG" | "ZPLII";
     metadata?: string;
     async?: boolean;
 }
@@ -142,7 +140,7 @@ const ShippoService = {
             throw new Error("Shippo client is not initialized. API key may be missing.");
         }
         try {
-            // Map our input to Shippo SDK's expected AddressCreateRequest params
+            // Map our input to Shippo SDK's expected format
             const addressToValidate = {
                 name: address.name,
                 company: address.company,
@@ -154,18 +152,18 @@ const ShippoService = {
                 country: address.country,
                 phone: address.phone,
                 email: address.email,
-                is_residential: address.is_residential, // SDK might infer or use this
-                validate: address.validate === undefined ? true : address.validate, // Default to true
+                isResidential: address.isResidential, // Use camelCase
+                validate: address.validate === undefined ? true : address.validate,
                 metadata: address.metadata,
             };
 
-            const response: Address = await shippoInstance.addresses.create(addressToValidate as any); // Use 'as any' if type mismatch with SDK
+            const response: Address = await shippoInstance.addresses.create(addressToValidate as any);
 
             const sdkValidationResults = response.validationResults;
             const validationMessages = sdkValidationResults?.messages?.map(m => m.text || '').filter(text => text) || [];
 
             // Determine residential status from validation results, then from response, then from input
-            let outputIsResidential = sdkValidationResults?.isResidential ?? response.isResidential ?? address.is_residential;
+            let outputIsResidential = sdkValidationResults?.isResidential ?? response.isResidential ?? address.isResidential;
 
             const correctedShippoAddress: ShippoAddressInput | null = response ? {
                 name: response.name || address.name,
@@ -178,29 +176,19 @@ const ShippoService = {
                 country: response.country || address.country,
                 phone: response.phone || address.phone,
                 email: response.email || address.email,
-                is_residential: outputIsResidential,
-                // metadata: response.metadata // if you want to preserve metadata from response
+                isResidential: outputIsResidential,
             } : null;
 
             // Shippo's top-level `isValid` on Address object might be the overall status
             // or rely on `validationResults.isValid`
             const isValidOverall = sdkValidationResults?.isValid ?? response.isValid ?? false;
 
-            if (isValidOverall) {
-                return {
-                    isValid: true,
-                    correctedAddress: correctedShippoAddress,
-                    messages: validationMessages,
-                    isResidential: outputIsResidential,
-                };
-            } else {
-                return {
-                    isValid: false,
-                    correctedAddress: correctedShippoAddress,
-                    messages: validationMessages.length > 0 ? validationMessages : ['Address is invalid.'],
-                    isResidential: outputIsResidential,
-                };
-            }
+            return {
+                isValid: isValidOverall,
+                correctedAddress: correctedShippoAddress,
+                messages: validationMessages.length > 0 ? validationMessages : (isValidOverall ? [] : ['Address is invalid.']),
+                isResidential: outputIsResidential,
+            };
         } catch (error: any) {
             console.error("Shippo API call error during address validation:", error);
             const errorMessage = error.detail || (error.messages && error.messages[0]?.text) || error.message || 'Unknown Shippo API error';
@@ -213,58 +201,107 @@ const ShippoService = {
             throw new Error("Shippo client is not initialized. API key may be missing.");
         }
         try {
-            // Map to SDK's ShipmentCreateRequest params (camelCase for nested objects if needed by SDK)
+            // Create shipment using SDK format
             const shipmentToCreate = {
                 addressFrom: shipmentData.addressFrom,
                 addressTo: shipmentData.addressTo,
-                parcels: shipmentData.parcels, // Assuming ShippoParcel matches SDK's parcel structure
+                parcels: shipmentData.parcels,
                 shipmentDate: shipmentData.shipmentDate,
                 carrierAccounts: shipmentData.carrierAccounts,
                 async: shipmentData.async === undefined ? false : shipmentData.async,
                 metadata: shipmentData.metadata,
             };
 
-            const shipment = await shippoInstance.shipments.create(shipmentToCreate as any); // Use 'as any' if type mismatch
+            const shipment = await shippoInstance.shipments.create(shipmentToCreate as any);
 
             if (shipment.rates && shipment.rates.length > 0) {
-                // Map SDK's Rate[] to AppShippoRate[]
-                return shipment.rates.map((rate: Rate) => ({
-                    objectId: rate.objectId,
-                    amount: rate.amount,
-                    currency: rate.currency,
-                    provider: rate.provider,
-                    providerImage75: rate.providerImage75,
-                    providerImage200: rate.providerImage200,
-                    serviceLevel: { // Ensure mapping for nested serviceLevel
-                        token: rate.serviceLevel?.token,
-                        name: rate.serviceLevel?.name,
-                        terms: rate.serviceLevel?.terms,
-                    },
-                    estimatedDays: rate.estimatedDays,
-                    durationTerms: rate.durationTerms,
-                    messages: rate.messages?.map(m => ({ text: m.text, code: m.code, source: m.source, type: m.type })),
-                    shipment: rate.shipment,
-                    attributes: rate.attributes,
-                    amountLocal: rate.amountLocal,
-                    currencyLocal: rate.currencyLocal,
-                    arrivesBy: rate.arrivesBy,
-                    carrierAccount: rate.carrierAccount,
-                    test: rate.test,
-                    zone: rate.zone,
-                }));
-            } else if (shipment.messages && shipment.messages.length > 0) {
-                const errorMessages = shipment.messages.map((m: any) => m.text || m.code).join(', ');
-                console.error("Shippo getRates messages:", errorMessages);
-                throw new Error(errorMessages);
+                // Filter out rates with errors and map valid ones
+                const validRates = shipment.rates.filter((rate: Rate) => {
+                    // Filter out rates that have error messages or are from unsupported carriers
+                    if (rate.messages && rate.messages.length > 0) {
+                        const hasErrors = rate.messages.some(msg =>
+                            msg.text?.toLowerCase().includes('error') ||
+                            msg.text?.toLowerCase().includes('failed') ||
+                            msg.text?.toLowerCase().includes('authentication') ||
+                            msg.text?.toLowerCase().includes('doesn\'t support')
+                        );
+                        if (hasErrors) {
+                            console.log(`Filtering out rate from ${rate.provider} due to errors:`, rate.messages.map(m => m.text).join(', '));
+                            return false;
+                        }
+                    }
+                    // Only include rates with valid amounts
+                    return rate.amount && parseFloat(rate.amount) >= 0;
+                });
+
+                if (validRates.length > 0) {
+                    return validRates.map((rate: Rate) => ({
+                        objectId: rate.objectId,
+                        amount: rate.amount,
+                        currency: rate.currency,
+                        provider: rate.provider,
+                        providerImage75: rate.providerImage75,
+                        providerImage200: rate.providerImage200,
+                        servicelevel: {
+                            token: rate.servicelevel?.token,
+                            name: rate.servicelevel?.name,
+                            terms: rate.servicelevel?.terms,
+                        },
+                        estimatedDays: rate.estimatedDays,
+                        durationTerms: rate.durationTerms,
+                        messages: rate.messages?.map(m => ({ text: m.text, code: m.code, source: m.source, type: m.type })),
+                        shipment: rate.shipment,
+                        attributes: rate.attributes,
+                        amountLocal: rate.amountLocal,
+                        currencyLocal: rate.currencyLocal,
+                        arrivesBy: rate.arrivesBy,
+                        carrierAccount: rate.carrierAccount,
+                        test: rate.test,
+                        zone: rate.zone,
+                    }));
+                }
             }
+
+            // If we get here, either no rates or all rates were filtered out
+            if (shipment.messages && shipment.messages.length > 0) {
+                // Check if all messages are just carrier account warnings (not fatal errors)
+                const fatalErrors = shipment.messages.filter((m: any) =>
+                    !m.text?.includes("doesn't support") &&
+                    !m.text?.includes("out of service area") &&
+                    !m.text?.includes("Too Many Requests") // Rate limiting is often temporary
+                );
+
+                if (fatalErrors.length > 0) {
+                    const errorMessages = fatalErrors.map((m: any) => m.text || m.code).join(', ');
+                    console.error("Shippo fatal errors:", errorMessages);
+                    throw new Error(`Shipping service error: ${errorMessages}`);
+                } else {
+                    // Only carrier compatibility warnings - log but don't throw
+                    const warningMessages = shipment.messages.map((m: any) => m.text || m.code).join(', ');
+                    console.warn("Shippo carrier warnings:", warningMessages);
+                    return []; // Return empty array instead of throwing
+                }
+            }
+
             return [];
         } catch (error: any) {
             console.error("Shippo getRates error in service:", error);
+
+            // Handle rate limiting specifically
+            if (error.message?.includes('Too Many Requests') || error.status === 429) {
+                throw new Error('Shipping service is temporarily busy. Please try again in a moment.');
+            }
+
+            // Handle authentication errors
+            if (error.message?.includes('Authentication Failed') || error.status === 401) {
+                throw new Error('Shipping service configuration error. Please contact support.');
+            }
+
             const errorMessage = error.detail || (error.messages && error.messages[0]?.text) || error.message || 'Unknown Shippo API error';
-            if (error instanceof Error && error.message.includes('Shippo API error')) { // Avoid double prefixing
+            if (error instanceof Error && error.message.includes('Shippo API error')) {
                 throw error;
             }
-            throw new Error(`Shippo API error during getRates: ${errorMessage}`);
+            throw new Error(`Shipping service error: ${errorMessage}`);
         }
     },
 
@@ -279,22 +316,22 @@ const ShippoService = {
                 async: transactionRequest.async === undefined ? false : transactionRequest.async,
                 metadata: transactionRequest.metadata,
             };
-            const transaction: Transaction = await shippoInstance.transactions.create(transactionToCreate as any); // Use 'as any' if type mismatch
+            const transaction: Transaction = await shippoInstance.transactions.create(transactionToCreate as any);
 
             // Map SDK's Transaction to AppShippoTransaction
             return {
                 objectId: transaction.objectId,
-                status: transaction.status as AppShippoTransaction['status'], // Cast status
-                rate: typeof transaction.rate === 'string' ? transaction.rate : (transaction.rate as Rate).objectId, // Handle if rate is object or string
+                status: transaction.status as AppShippoTransaction['status'],
+                rate: typeof transaction.rate === 'string' ? transaction.rate : (transaction.rate as Rate).objectId,
                 trackingNumber: transaction.trackingNumber,
-                trackingStatus: transaction.trackingStatus as AppShippoTransaction['trackingStatus'], // Cast if needed
+                trackingStatus: transaction.trackingStatus as AppShippoTransaction['trackingStatus'],
                 trackingUrlProvider: transaction.trackingUrlProvider,
                 labelUrl: transaction.labelUrl,
                 commercialInvoiceUrl: transaction.commercialInvoiceUrl,
                 messages: transaction.messages?.map(m => ({ text: m.text, code: m.code, source: m.source, type: m.type })),
-                objectState: transaction.objectState as AppShippoTransaction['objectState'], // Cast if needed
+                objectState: transaction.objectState as AppShippoTransaction['objectState'],
                 eta: transaction.eta,
-                parcel: typeof transaction.parcel === 'string' ? transaction.parcel : undefined, // Handle if parcel is object or string
+                parcel: typeof transaction.parcel === 'string' ? transaction.parcel : undefined,
                 order: transaction.order,
                 metadata: transaction.metadata,
                 test: transaction.test,

@@ -330,10 +330,9 @@ export default function CartPage() {
   const subtotal = getTotalPrice()
   // Shipping cost is now directly from selectedShippingRate.cost, which already considers free shipping
   const shipping = selectedShippingRate ? selectedShippingRate.cost : 0;
-  const taxRate = 0.08; // Example: 8% tax. Consider making this configurable.
+  const taxRate = 0.08; // Default: 8% tax. Consider making this configurable.
   const tax = (subtotal + (selectedShippingRate && !selectedShippingRate.isFreeShipping ? selectedShippingRate.originalCost : 0)) * taxRate; // Tax on subtotal + original shipping cost if not free
   const total = subtotal + shipping + tax
-
 
   // Calculate how much more needed for free shipping
   const amountNeededForFreeShipping = Math.max(0, freeShippingThreshold - subtotal)
@@ -394,16 +393,18 @@ export default function CartPage() {
                         <span className="font-medium">Category: {item.category}</span>
                         {item.size && <span>Size: {item.size}</span>}
                         {item.color && <span>Color: {item.color}</span>}
-                        {item.unitId && <span>Unit: {item.unitId}</span>}
                       </div>
                       <div className="mt-1 flex items-center gap-2">
-                        {item.salePrice ? (
+                        {item.salePrice && item.salePrice < item.price ? (
                           <>
                             <span className="text-sm text-gray-500 line-through">${item.price.toFixed(2)}</span>
                             <span className="text-base sm:text-lg font-bold text-red-600">${item.salePrice.toFixed(2)}</span>
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                              Sale
+                            </span>
                           </>
                         ) : (
-                          <span className="text-base sm:text-lg font-bold text-gray-900">${item.price.toFixed(2)}</span>
+                          <span className="text-base sm:text-lg font-bold text-gray-900">${item.effectivePrice.toFixed(2)}</span>
                         )}
                       </div>
                     </div>
@@ -688,7 +689,7 @@ export default function CartPage() {
                           <label key={rate.rateId} className={`flex items-center p-3 border rounded-md cursor-pointer hover:bg-gray-100 transition-colors ${selectedShippingRate?.rateId === rate.rateId ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-300' : 'border-gray-200'}`}>
                             <input
                               type="radio"
-                              name="shippingOption" // Changed name to avoid conflict if any other radio group exists
+                              name="shippingOption"
                               checked={selectedShippingRate?.rateId === rate.rateId}
                               onChange={() => setSelectedShippingRate(rate)}
                               className="mr-3 h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300"
@@ -721,15 +722,73 @@ export default function CartPage() {
                   </div>
                 )}
 
+                {/* Order Total Summary */}
+                <div className="border-t border-gray-200 pt-4">
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Subtotal ({getTotalItems()} items)</span>
+                      <span className="font-medium text-gray-900">${subtotal.toFixed(2)}</span>
+                    </div>
+
+                    {shippingAddress && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">
+                          Shipping {selectedShippingRate ? `(${selectedShippingRate.serviceName})` : ''}
+                        </span>
+                        <span className="font-medium text-gray-900">
+                          {!selectedShippingRate ? (
+                            <span className="text-gray-500">Select shipping option</span>
+                          ) : selectedShippingRate.isFreeShipping ? (
+                            <span className="text-green-600">FREE</span>
+                          ) : (
+                            `$${shipping.toFixed(2)}`
+                          )}
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Tax (8%)</span>
+                      <span className="font-medium text-gray-900">${tax.toFixed(2)}</span>
+                    </div>
+
+                    <div className="border-t border-gray-200 pt-2">
+                      <div className="flex justify-between">
+                        <span className="text-base font-semibold text-gray-900">Total</span>
+                        <span className="text-lg font-bold text-gray-900">${total.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Checkout Button */}
                 <div className="pt-4">
                   <button
                     onClick={handleCheckout}
-                    className="w-full py-2 px-4 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
-                    disabled={isCheckoutLoading || items.length === 0 || !shippingAddress || ratesLoading}
+                    className="w-full py-3 px-4 bg-purple-600 text-white rounded-md text-base font-semibold hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    disabled={isCheckoutLoading || items.length === 0 || !shippingAddress || ratesLoading || !selectedShippingRate}
                   >
-                    {isCheckoutLoading ? 'Processing...' : 'Proceed to Checkout'}
+                    {isCheckoutLoading ? (
+                      <span className="flex items-center justify-center">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Processing...
+                      </span>
+                    ) : (
+                      `Checkout - $${total.toFixed(2)}`
+                    )}
                   </button>
+
+                  {!shippingAddress && (
+                    <p className="mt-2 text-xs text-gray-500 text-center">
+                      Please add a shipping address to continue
+                    </p>
+                  )}
+
+                  {shippingAddress && !selectedShippingRate && !ratesLoading && (
+                    <p className="mt-2 text-xs text-gray-500 text-center">
+                      Please select a shipping option to continue
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

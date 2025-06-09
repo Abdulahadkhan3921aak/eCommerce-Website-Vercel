@@ -40,19 +40,21 @@ export async function searchProducts(query: string) {
 
 export interface CartItem {
   _id: string
-  productId: string // Add this field
+  productId: string
   name: string
   price: number
   salePrice?: number
   effectivePrice: number
   quantity: number
-  images: string[] // Product fallback images
-  unitImages: string[] // Unit-specific images for the selected variant
+  images: string[]
+  unitImages?: string[] // Unit-specific images for the selected variant
   category: string
-  unitId: string
+  unitId?: string
   size?: string
   color?: string
   availableStock: number
+  weight?: number
+  dimensions?: { length: number; width: number; height: number }
 }
 
 export interface CartState {

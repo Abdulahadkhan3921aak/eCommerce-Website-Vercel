@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
             country: inputAddress.country, // Ensure this is an ISO 2-letter code
             phone: inputAddress.phone,
             email: inputAddress.email,
-            is_residential: inputAddress.residential, // Pass residential flag if collected
+            isResidential: inputAddress.residential, // Use camelCase
             validate: true // Explicitly request validation
         }
 
@@ -58,9 +58,8 @@ export async function POST(request: NextRequest) {
                 state: validation.correctedAddress.state,
                 postalCode: validation.correctedAddress.zip,
                 country: validation.correctedAddress.country,
-                phone: validation.correctedAddress.phone || shippoAddress.phone, // Preserve original if not corrected
-                email: validation.correctedAddress.email || shippoAddress.email, // Preserve original if not corrected
-                // is_residential is part of the top-level validation response (validation.isResidential)
+                phone: validation.correctedAddress.phone || shippoAddress.phone,
+                email: validation.correctedAddress.email || shippoAddress.email,
             };
         }
 

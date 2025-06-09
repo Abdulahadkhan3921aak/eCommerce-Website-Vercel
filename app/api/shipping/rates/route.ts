@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Construct Shippo address_from (sender address from .env)
-        const address_from: ShippoAddressInput = {
+        const addressFrom: ShippoAddressInput = {
             name: process.env.SHIPPO_SENDER_NAME || "Butterflies Beading",
             street1: process.env.SHIPPO_SENDER_STREET1 || "123 Artisan Way",
             street2: process.env.SHIPPO_SENDER_STREET2 || "",
@@ -61,11 +61,11 @@ export async function POST(request: NextRequest) {
             country: process.env.SHIPPO_SENDER_COUNTRY || "US",
             phone: process.env.SHIPPO_SENDER_PHONE || "5551234567",
             email: process.env.SHIPPO_SENDER_EMAIL || "shipping@butterfliesbeading.com",
-            is_residential: false, // Assuming business sender address
+            isResidential: false, // Use camelCase
         };
 
         // Construct Shippo address_to (recipient address)
-        const address_to: ShippoAddressInput = {
+        const addressTo: ShippoAddressInput = {
             name: address.name,
             street1: address.line1,
             street2: address.line2,
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
             country: address.country || "US",
             phone: address.phone,
             email: address.email,
-            is_residential: address.residential === undefined ? true : address.residential,
+            isResidential: address.residential === undefined ? true : address.residential, // Use camelCase
         };
 
         // Construct Shippo parcels from cart items
@@ -113,22 +113,23 @@ export async function POST(request: NextRequest) {
             length: String(Math.ceil(maxLengthIn)), // Shippo expects strings
             width: String(Math.ceil(maxWidthIn)),
             height: String(Math.ceil(totalHeightIn)),
-            distance_unit: 'in',
+            distanceUnit: 'in', // Use camelCase
             weight: String(parseFloat(totalWeightLb.toFixed(2))), // Ensure weight is a string, rounded
-            mass_unit: 'lb',
+            massUnit: 'lb', // Use camelCase
         }];
 
         const shipmentRequestData: ShippoShipmentRequestData = {
-            address_from,
-            address_to,
+            addressFrom,
+            addressTo,
             parcels,
             async: false, // Get rates synchronously
-            // carrier_accounts: [process.env.SHIPPO_USPS_ACCOUNT_ID] // Example: if you want to restrict to specific accounts
+            // carrierAccounts: [process.env.SHIPPO_USPS_ACCOUNT_ID] // Example: if you want to restrict to specific accounts
         };
 
         const shippoApiRates = await ShippoService.getRates(shipmentRequestData);
 
         const cartSubtotal = cartItems.reduce((total: number, item: any) => {
+            // Use effectivePrice which should already account for sales
             return total + (item.effectivePrice * item.quantity)
         }, 0);
 
@@ -141,16 +142,16 @@ export async function POST(request: NextRequest) {
                 const originalCost = parseFloat(rate.amount);
                 const displayCost = qualifiesForFreeShipping ? 0 : originalCost;
                 return {
-                    rateId: rate.object_id,
+                    rateId: rate.objectId, // Use objectId
                     serviceType: rate.servicelevel.token,
                     serviceName: `${rate.provider} ${rate.servicelevel.name}`,
                     cost: displayCost,
                     originalCost: originalCost,
-                    estimatedDelivery: rate.estimated_days ? `Approx. ${rate.estimated_days} business day(s)` : (rate.duration_terms || 'Delivery time varies'),
-                    deliveryDays: rate.estimated_days,
+                    estimatedDelivery: rate.estimatedDays ? `Approx. ${rate.estimatedDays} business day(s)` : (rate.durationTerms || 'Delivery time varies'),
+                    deliveryDays: rate.estimatedDays,
                     isFreeShipping: qualifiesForFreeShipping,
                     provider: rate.provider,
-                    providerLogo: rate.provider_image_75, // or provider_image_200
+                    providerLogo: rate.providerImage75, // or providerImage200
                 };
             })
             .sort((a, b) => a.cost - b.cost); // Sort by final display cost (cheapest first)

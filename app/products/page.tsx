@@ -177,7 +177,7 @@ export default function ProductsPage() {
           alert('This product is currently out of stock')
           return
         }
-        addToCart(product, 1)
+        addToCart(product, 1) // Don't pass undefined unitId
       }
     } catch (error) {
       console.error('Error in handleAddToCart:', error)

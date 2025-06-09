@@ -53,7 +53,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
         // Recalculate shipping cost using Shippo
         // Construct Shippo address_from (sender address from .env)
-        const address_from: ShippoAddressInput = {
+        const addressFrom: ShippoAddressInput = {
             name: process.env.SHIPPO_SENDER_NAME || "Butterflies Beading",
             street1: process.env.SHIPPO_SENDER_STREET1 || "123 Artisan Way",
             city: process.env.SHIPPO_SENDER_CITY || "Craftsville",
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
             country: process.env.SHIPPO_SENDER_COUNTRY || "US",
         };
 
-        const address_to: ShippoAddressInput = {
+        const addressTo: ShippoAddressInput = {
             name: order.shippingAddress.name,
             street1: order.shippingAddress.line1,
             street2: order.shippingAddress.line2,
@@ -70,21 +70,21 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
             state: order.shippingAddress.state,
             zip: order.shippingAddress.postal_code,
             country: order.shippingAddress.country,
-            is_residential: order.shippingAddress.residential,
+            isResidential: order.shippingAddress.residential, // Use camelCase
         };
 
         const parcel: ShippoParcel = {
             length: String(shippingDimensions.length),
             width: String(shippingDimensions.width),
             height: String(shippingDimensions.height),
-            distance_unit: 'in', // Assuming inches, make this configurable if necessary
+            distanceUnit: 'in', // Use camelCase
             weight: String(shippingWeight),
-            mass_unit: 'lb', // Assuming pounds, make this configurable
+            massUnit: 'lb', // Use camelCase
         };
 
         const shipmentRequestData: ShippoShipmentRequestData = {
-            address_from,
-            address_to,
+            addressFrom,
+            addressTo,
             parcels: [parcel],
             async: false,
         };
@@ -105,22 +105,19 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
                 if (chosenRate) {
                     newShippingCost = parseFloat(chosenRate.amount);
                     bestRateDetails = {
-                        rateId: chosenRate.object_id,
+                        rateId: chosenRate.objectId, // Use objectId
                         carrier: chosenRate.provider,
                         serviceLevelToken: chosenRate.servicelevel.token,
                         serviceLevelName: `${chosenRate.provider} ${chosenRate.servicelevel.name}`,
                         cost: newShippingCost,
-                        estimatedDeliveryDays: chosenRate.estimated_days,
+                        estimatedDeliveryDays: chosenRate.estimatedDays,
                     };
                 }
             } else {
-                // No rates found, could be an issue. For now, keep original cost or set to a default/error state.
-                // This might mean the admin needs to manually adjust or check address/dimensions.
                 console.warn(`No new shipping rates found for order ${orderId} after dimension update.`);
             }
         } catch (rateError) {
             console.error(`Error fetching new shipping rates for order ${orderId}:`, rateError);
-            // Keep original shipping cost if fetching new rates fails
         }
 
         order.shippingCost = newShippingCost;
@@ -150,7 +147,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
                     console.error(`Failed to cancel previous Payment Intent ${order.stripePaymentIntentId}:`, piError);
                 }
             }
-            emailContentForUser += `\nThe total amount for your order has changed from $${originalTotal.toFixed(2)} to $${order.total.toFixed(2)}. Please visit your order page or follow the link in the subsequent email to complete the payment for the new amount.`;
+            emailContentForUser += `\nThe total amount for your order has changed from $${originalTotal.toFixed(2)} to $${order.total.toFixed(2)}. Please visit your order page or follow the link in a subsequent email to complete the payment for the new amount.`;
             // TODO: Trigger a process to generate a new payment link/invoice for the difference or new total.
         }
 

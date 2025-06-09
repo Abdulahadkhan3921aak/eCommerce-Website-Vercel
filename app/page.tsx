@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import Header from "@/components/Header";
-import { getProductPriceRange, getUnitEffectivePrice } from "@/lib/types/product";
+import { getProductPriceRange, getUnitEffectivePrice, hasAnySale } from "@/lib/types/product";
 import StructuredData from "@/components/SEO/StructuredData";
 import { Metadata } from "next";
 
@@ -118,6 +118,7 @@ export default async function Home() {
                 featuredProducts.slice(0, 6).map((product) => {
                   const priceRange = getProductPriceRange(product);
                   const hasVariedPricing = priceRange.min !== priceRange.max;
+                  const productOnSale = hasAnySale(product);
 
                   // Better image handling for home page
                   const getProductImage = () => {
@@ -200,6 +201,11 @@ export default async function Home() {
                               </svg>
                               <span className="text-sm">No Image Available</span>
                             </div>
+                          </div>
+                        )}
+                        {productOnSale && (
+                          <div className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded">
+                            Sale
                           </div>
                         )}
                       </div>

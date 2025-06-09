@@ -22,11 +22,13 @@ export default function Header() {
   const [userRole, setUserRole] = useState<UserRole | null>(null)
   const [loading, setLoading] = useState(true)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [isHydrated, setIsHydrated] = useState(false)
   const { getTotalItems } = useCart()
   const pathname = usePathname()
 
   useEffect(() => {
     fetchUserRole()
+    setIsHydrated(true)
   }, [])
 
   const fetchUserRole = async () => {
@@ -82,8 +84,6 @@ export default function Header() {
               <span className="lavender-b">B</span>utterflies <span className="lavender-b">B</span>eading
             </Link>
 
-
-
             <nav className="hidden md:flex space-x-8">
               <Link href="/products" className={getLinkClasses('/products')}>
                 Products
@@ -96,7 +96,7 @@ export default function Header() {
               </Link>
               <Link href="/cart" className={`${getLinkClasses('/cart')} relative`}>
                 Cart
-                {totalItems > 0 && (
+                {isHydrated && totalItems > 0 && (
                   <span className="absolute -top-2 -right-2 bg-purple-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
                     {totalItems}
                   </span>
@@ -104,7 +104,7 @@ export default function Header() {
               </Link>
 
               {!loading && isAdmin && (
-                <Link href="/admin" className={`${getLinkClasses('/admin')} flex items-center space-x-1`}>
+                <Link href="/admin" className={`${getLinkClasses('/admin')} flex items-center space-x-1`} suppressHydrationWarning>
                   <span>Admin</span>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -120,7 +120,7 @@ export default function Header() {
                       d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                   {userRole?.role === 'admin' && (
-                    <span className="ml-1 text-xs text-red-500 font-semibold">(admin)</span>
+                    <span className="ml-1 text-xs text-red-500 font-semibold" suppressHydrationWarning>(admin)</span>
                   )}
                 </Link>
               )}
@@ -180,8 +180,8 @@ export default function Header() {
                 onClick={() => setIsMobileMenuOpen(false)}
               >
                 Cart
-                {totalItems > 0 && (
-                  <span className="ml-2 bg-purple-600 text-white text-xs rounded-full h-5 w-5 inline-flex items-center justify-center">
+                {isHydrated && totalItems > 0 && (
+                  <span className="ml-2 bg-purple-600 text-white text-xs rounded-full h-5 w-5 inline-flex items-center justify-center" suppressHydrationWarning>
                     {totalItems}
                   </span>
                 )}
@@ -191,10 +191,11 @@ export default function Header() {
                   href="/admin"
                   className={`block px-3 py-2 rounded-md text-base ${getLinkClasses('/admin')}`}
                   onClick={() => setIsMobileMenuOpen(false)}
+                  suppressHydrationWarning
                 >
                   Admin Dashboard
                   {userRole?.role === 'admin' && (
-                    <span className="ml-1 text-xs text-red-500 font-semibold">(admin)</span>
+                    <span className="ml-1 text-xs text-red-500 font-semibold" suppressHydrationWarning>(admin)</span>
                   )}
                 </Link>
               )}

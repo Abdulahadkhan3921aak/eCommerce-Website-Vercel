@@ -21,7 +21,27 @@ export async function GET() {
             return NextResponse.json({ items: [] })
         }
 
-        return NextResponse.json({ items: cart.items || [] })
+        // Map server cart items to frontend CartItem structure
+        const mappedItems = cart.items.map(item => ({
+            _id: `${item.productId.toString()}_${item.unitId || 'default'}`,
+            productId: item.productId.toString(),
+            name: item.name,
+            price: item.price,
+            salePrice: item.salePrice,
+            effectivePrice: item.effectivePrice,
+            images: item.images || [],
+            unitImages: item.unitImages,
+            category: item.category,
+            quantity: item.quantity,
+            size: item.size,
+            color: item.color,
+            unitId: item.unitId,
+            stock: item.stock,
+            weight: item.weight,
+            dimensions: item.dimensions
+        }))
+
+        return NextResponse.json({ items: mappedItems })
     } catch (error) {
         console.error('Error fetching cart:', error)
         return NextResponse.json({

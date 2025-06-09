@@ -73,17 +73,9 @@ export default function AddToCartButton({
           return
         }
 
-        // Calculate the effective price considering both product and unit sales
-        const effectivePrice = getUnitEffectivePrice(product, selectedUnit)
-
-        // Use effective price for the cart
-        const productWithUnitPrice = {
-          ...product,
-          price: selectedUnit.price, // Original unit price
-          salePrice: effectivePrice !== selectedUnit.price ? effectivePrice : undefined // Sale price if different
-        }
-
-        addToCart(productWithUnitPrice, quantity, selectedUnit.size, selectedUnit.color, selectedUnit.unitId)
+        // The cart context will handle the effective price calculation
+        // Just pass the product and unit info
+        addToCart(product, quantity, selectedUnit.size, selectedUnit.color, selectedUnit.unitId)
       } else if (product.units && Array.isArray(product.units) && product.units.length > 0) {
         // Find the first available unit
         const availableUnit = product.units.find(unit =>
@@ -94,26 +86,14 @@ export default function AddToCartButton({
         )
 
         if (availableUnit) {
-          const effectivePrice = getUnitEffectivePrice(product, availableUnit)
-          const productWithUnitPrice = {
-            ...product,
-            price: availableUnit.price,
-            salePrice: effectivePrice !== availableUnit.price ? effectivePrice : undefined
-          }
-          addToCart(productWithUnitPrice, quantity, availableUnit.size, availableUnit.color, availableUnit.unitId)
+          addToCart(product, quantity, availableUnit.size, availableUnit.color, availableUnit.unitId)
         } else {
           console.warn('AddToCartButton: No available units found')
           alert('Product is out of stock')
         }
       } else {
-        // Legacy product without units - use product-level sale
-        const effectivePrice = getProductDisplayPrice(product)
-        const productWithSale = {
-          ...product,
-          salePrice: effectivePrice !== product.price ? effectivePrice : undefined
-        }
-        const defaultUnitId = `unit-${product._id}-default`
-        addToCart(productWithSale, quantity, undefined, undefined, defaultUnitId)
+        // Legacy product without units - use consistent ID format
+        addToCart(product, quantity, undefined, undefined, undefined)
       }
     } catch (error) {
       console.error('AddToCartButton: Error in handleAddToCart:', error)

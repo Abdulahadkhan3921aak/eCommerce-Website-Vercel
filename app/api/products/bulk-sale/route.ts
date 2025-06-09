@@ -31,16 +31,18 @@ export async function POST(req: NextRequest) {
         if (saleConfig.action === 'setSale') {
             updateData.saleConfig = {
                 isOnSale: true,
-                saleType: saleConfig.type, // 'percentage' or 'amount'
+                saleType: saleConfig.type,
                 saleValue: saleConfig.value,
             }
+            // Remove any existing salePrice to let the frontend calculate it
+            updateData.$unset = { salePrice: "" }
         } else if (saleConfig.action === 'removeSale') {
             updateData.saleConfig = {
                 isOnSale: false,
                 saleType: 'percentage',
                 saleValue: 0,
             }
-            updateData.salePrice = undefined
+            updateData.$unset = { salePrice: "" }
         }
 
         const result = await Product.updateMany(

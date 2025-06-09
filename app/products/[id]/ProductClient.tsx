@@ -117,27 +117,20 @@ export default function ProductClient({ product }: Props) {
     // For products with units, require unit selection
     if (product.units && product.units.length > 0) {
       if (!selectedUnit) {
-        // The CartContext will show an error notification
-        addToCart(product, quantity, selectedSize, selectedColor, undefined);
+        showNotification('Please select size and color options.', 'error');
         return;
       }
 
       // Check stock before adding
       if (quantity > availableStock) {
-        return; // CartContext will handle the error notification
+        showNotification(`Cannot add more than ${availableStock} units of ${product.name}.`, 'error');
+        return;
       }
 
-      // Create a product object with the correct price from the selected unit
-      const productWithUnitPrice: Product = {
-        ...product,
-        price: selectedUnit.price,
-        salePrice: isUnitOnSale(product, selectedUnit) ? getUnitEffectivePrice(product, selectedUnit) : undefined
-      };
-      console.log('Adding to cart:', productWithUnitPrice, quantity, selectedSize, selectedColor, selectedUnit.unitId);
-      addToCart(productWithUnitPrice, quantity, selectedSize, selectedColor, selectedUnit.unitId);
+      addToCart(product, quantity, selectedSize, selectedColor, selectedUnit.unitId);
     } else {
       // For products without units, use the product directly
-      addToCart(product, quantity, selectedSize, selectedColor, undefined);
+      addToCart(product, quantity);
     }
   }
 
@@ -246,7 +239,6 @@ export default function ProductClient({ product }: Props) {
                           {priceInfo.saleInfo.saleType === 'percentage'
                             ? `${priceInfo.saleInfo.saleValue}% OFF`
                             : `$${priceInfo.saleInfo.saleValue} OFF`}
-                          {priceInfo.saleInfo.source === 'unit' && ' (Unit Sale)'}
                         </span>
                       )}
                     </>

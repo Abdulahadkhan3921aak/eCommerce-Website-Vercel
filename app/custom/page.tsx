@@ -146,7 +146,7 @@ export default function CustomProductPage() {
       _id: `custom-${selectedCategory}-${Date.now()}`,
       name: `${categoryInfo[selectedCategory].title}${engraveEnabled ? ' (Engraved)' : ''}`,
       description: `Custom ${categoryInfo[selectedCategory].title}`,
-      price: calculatePrice(),
+      price: calculatePrice() / quantity, // Base price per unit
       images: [categoryInfo[selectedCategory].image],
       category: 'custom',
       stock: 999, // Custom products have high stock
@@ -165,17 +165,14 @@ export default function CustomProductPage() {
         unitId: `custom-unit-${sizeId}-${Date.now()}`,
         size: categorySizes[selectedCategory].find(s => s.id === sizeId)?.displayName,
         stock: 999,
-        price: calculatePrice(),
+        price: calculatePrice() / quantity, // Price per unit
         images: [categoryInfo[selectedCategory].image], // Use category image for custom units
-        saleConfig: {
-          isOnSale: false,
-          saleType: 'percentage' as const,
-          saleValue: 0
-        }
       }))
     }
 
-    addToCart(customProduct, 1)
+    // Pass the first unit ID if units exist
+    const firstUnitId = customProduct.units && customProduct.units.length > 0 ? customProduct.units[0].unitId : undefined;
+    addToCart(customProduct, quantity, undefined, undefined, firstUnitId)
     alert('Custom jewelry added to cart!')
   }
 

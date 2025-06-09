@@ -16,6 +16,7 @@ export async function POST(request: NextRequest) {
         const { cartItemId, quantity } = await request.json()
 
         if (!cartItemId || quantity === undefined) {
+            console.error('Missing required fields:', { cartItemId, quantity })
             return NextResponse.json({ error: 'Cart item ID and quantity required' }, { status: 400 })
         }
 
@@ -28,20 +29,31 @@ export async function POST(request: NextRequest) {
 
         if (quantity <= 0) {
             // Remove item if quantity is 0 or less
+            const initialLength = cart.items.length
             cart.items = cart.items.filter(item => {
-                const itemId = item.productId.toString() + (item.unitId ? `_${item.unitId}` : '_default')
+                const itemId = `${item.productId.toString()}_${item.unitId || 'default'}`
                 return itemId !== cartItemId
             })
+
+            if (cart.items.length === initialLength) {
+                console.error('Item not found for removal:', cartItemId)
+                return NextResponse.json({ error: 'Item not found in cart' }, { status: 404 })
+            }
         } else {
             // Update quantity
             const itemIndex = cart.items.findIndex(item => {
-                const itemId = item.productId.toString() + (item.unitId ? `_${item.unitId}` : '_default')
+                const itemId = `${item.productId.toString()}_${item.unitId || 'default'}`
                 return itemId === cartItemId
             })
 
             if (itemIndex > -1) {
                 cart.items[itemIndex].quantity = quantity
             } else {
+                console.error('Item not found for update:', cartItemId)
+                console.error('Available items:', cart.items.map(item => ({
+                    id: `${item.productId.toString()}_${item.unitId || 'default'}`,
+                    name: item.name
+                })))
                 return NextResponse.json({ error: 'Item not found in cart' }, { status: 404 })
             }
         }

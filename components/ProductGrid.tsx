@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { Product, getProductPriceRange, isUnitOnSale } from '@/models/Product'
+import { Product, getProductPriceRange, hasAnySale } from '@/lib/types/product'
 
 interface ProductGridProps {
   products: Product[]
@@ -27,6 +27,9 @@ export default function ProductGrid({ products }: ProductGridProps) {
 
         const isOutOfStock = totalStock === 0;
         const lowStock = totalStock <= 5 && totalStock > 0;
+        const priceRange = getProductPriceRange(product);
+        const hasVariedPricing = priceRange.min !== priceRange.max;
+        const productOnSale = hasAnySale(product);
 
         return (
           <div key={product._id} className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow">

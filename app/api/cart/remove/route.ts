@@ -26,11 +26,22 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Cart not found' }, { status: 404 })
         }
 
-        // Remove item from cart
+        const initialLength = cart.items.length
+
+        // Remove item from cart using consistent ID format
         cart.items = cart.items.filter(item => {
-            const itemId = item.productId.toString() + (item.unitId ? `_${item.unitId}` : '_default')
-            return itemId !== cartItemId
+            const itemId = `${item.productId.toString()}_${item.unitId || 'default'}`;
+            return itemId !== cartItemId;
         })
+
+        if (cart.items.length === initialLength) {
+            console.error('Item not found for removal:', cartItemId)
+            console.error('Available items:', cart.items.map(item => ({
+                id: `${item.productId.toString()}_${item.unitId || 'default'}`,
+                name: item.name
+            })))
+            return NextResponse.json({ error: 'Item not found in cart' }, { status: 404 })
+        }
 
         cart.updatedAt = new Date()
         await cart.save()

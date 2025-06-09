@@ -2,34 +2,34 @@
 
 import React, { createContext, useReducer, useContext, useEffect } from 'react'
 import { useAuth } from '@clerk/nextjs'
-import { Product, getUnitEffectivePrice, getProductDisplayPrice } from '@/lib/types/product'
+import { Product, ProductUnit, getUnitEffectivePrice, getProductDisplayPrice } from '@/lib/types/product'
 
-// Minimal Product and ProductUnit interfaces based on usage elsewhere
-// Replace with actual imports if a central type definition exists
-interface Product {
-  _id: string;
-  name: string;
-  price: number;
-  salePrice?: number;
-  images: string[];
-  category: string;
-  units?: ProductUnit[];
-  stock?: number; // For products without units
-  totalStock?: number; // For products with units (sum of unit stocks)
-  weight?: number;
-  dimensions?: { length: number; width: number; height: number; };
-  // other fields like description, etc.
-}
+// // Minimal Product and ProductUnit interfaces based on usage elsewhere
+// // Replace with actual imports if a central type definition exists
+// interface Product {
+//   _id: string;
+//   name: string;
+//   price: number;
+//   salePrice?: number;
+//   images: string[];
+//   category: string;
+//   units?: ProductUnit[];
+//   stock?: number; // For products without units
+//   totalStock?: number; // For products with units (sum of unit stocks)
+//   weight?: number;
+//   dimensions?: { length: number; width: number; height: number; };
+//   // other fields like description, etc.
+// }
 
-interface ProductUnit {
-  unitId: string;
-  size?: string;
-  color?: string;
-  stock: number;
-  price: number;
-  salePrice?: number;
-  images?: string[];
-}
+// interface ProductUnit {
+//   unitId: string;
+//   size?: string;
+//   color?: string;
+//   stock: number;
+//   price: number;
+//   salePrice?: number;
+//   images?: string[];
+// }
 
 interface CartItem {
   _id: string // Unique identifier for this cart item instance (e.g., product._id + (unitId ? '_' + unitId : '_default'))
@@ -141,45 +141,36 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       if (storedCart) {
         try {
           const parsedCart = JSON.parse(storedCart);
-          // Ensure parsedCart has items array, otherwise use initial
           return parsedCart && Array.isArray(parsedCart.items) ? parsedCart : initial;
         } catch (e) {
           console.error("Failed to parse cart from localStorage", e);
-          localStorage.removeItem('butterfliesCart'); // Clear corrupted cart
+          localStorage.removeItem('butterfliesCart');
         }
       }
     }
-    return initial; // Default initial state if nothing in localStorage or SSR
+    return initial;
   });
 
-  const [isLoading, setIsLoading] = React.useState(false) // Keep for API loading state
+  const [isLoading, setIsLoading] = React.useState(false)
   const [notification, setNotification] = React.useState<CartNotification>({
     show: false,
     message: '',
     type: 'success'
   })
 
-  // Load cart from server when user signs in or cart is empty and user is signed in
+  // Load cart from server when user signs in
   useEffect(() => {
     if (isSignedIn && userId) {
       loadCartFromServer();
     }
-    // If not signed in, cart is already loaded from localStorage by useReducer initializer
   }, [isSignedIn, userId]);
 
-
-  // Persist cart to localStorage whenever it changes
+  // Persist cart to localStorage only for non-signed-in users or after successful server sync
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      // Save even if cart becomes empty to clear it from localStorage,
-      // or if it was loaded and is now non-empty.
-      // Avoid writing if initial load is pending and items are empty (unless explicitly cleared)
-      if (state.items.length > 0 || localStorage.getItem('butterfliesCart')) {
-        localStorage.setItem('butterfliesCart', JSON.stringify(state));
-      }
+    if (typeof window !== 'undefined' && !isSignedIn) {
+      localStorage.setItem('butterfliesCart', JSON.stringify(state));
     }
-  }, [state.items]); // Depend on state.items to ensure it runs when items change
-
+  }, [state.items, isSignedIn]);
 
   // Auto-hide notification after 3 seconds
   useEffect(() => {
@@ -200,35 +191,31 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   };
 
   const loadCartFromServer = async () => {
-    if (!isSignedIn || !userId) return; // Should be redundant due to calling context
+    if (!isSignedIn || !userId) return;
     setIsLoading(true);
     try {
-      const response = await fetch('/api/cart'); // Assuming this endpoint gets the user's cart
+      const response = await fetch('/api/cart');
       if (response.ok) {
         const serverCartData = await response.json();
-        // serverCartData should be an object like { items: CartItem[] }
         dispatch({ type: 'LOAD_CART', payload: { items: serverCartData.items || [] } });
+        // Update localStorage with server data
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('butterfliesCart', JSON.stringify({ items: serverCartData.items || [] }));
+        }
       } else {
         let errorDetails = response.statusText;
         try {
-          // Attempt to parse a JSON error response from the server
           const errorData = await response.json();
           if (errorData && (errorData.error || errorData.message)) {
             errorDetails = errorData.error || errorData.message;
           }
         } catch (e) {
-          // If parsing JSON fails, stick with the statusText
           console.warn('Could not parse error response as JSON:', e);
         }
         console.error(`Failed to load cart from server: Status ${response.status}`, errorDetails);
-        // Optionally, if server fails, could decide to keep local cart or clear it
-        // For now, we keep the local cart if server fetch fails after initial load.
-        // You could also show a user-facing notification here:
-        // showNotification(`Error loading cart: ${errorDetails}. Using local data.`, 'error');
       }
     } catch (error) {
       console.error('Error loading cart from server (network or other issue):', error);
-      // showNotification('Network error while loading cart. Using local data.', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -241,13 +228,21 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     let itemStock = product.stock || product.totalStock || 0;
     let itemImages = product.images;
     let itemUnitImages: string[] | undefined = undefined;
+    let originalPrice = product.price;
+    let salePrice: number | undefined = undefined;
 
-    const cartItemId = product._id + (unitId ? `_${unitId}` : '_default');
+    // Generate consistent cart item ID
+    const cartItemId = `${product._id}_${unitId || 'default'}`;
 
     if (unitId && product.units) {
       selectedProductUnit = product.units.find(u => u.unitId === unitId);
       if (selectedProductUnit) {
-        effectivePrice = selectedProductUnit.salePrice ?? selectedProductUnit.price;
+        // Use the sale calculation function for units
+        effectivePrice = getUnitEffectivePrice(product, selectedProductUnit);
+        originalPrice = selectedProductUnit.price;
+        if (effectivePrice < originalPrice) {
+          salePrice = effectivePrice;
+        }
         itemStock = selectedProductUnit.stock;
         if (selectedProductUnit.images && selectedProductUnit.images.length > 0) {
           itemUnitImages = selectedProductUnit.images;
@@ -258,15 +253,19 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         return;
       }
     } else {
-      effectivePrice = product.salePrice ?? product.price;
+      // For products without units, use the product-level sale calculation
+      effectivePrice = getProductDisplayPrice(product);
+      if (effectivePrice < product.price) {
+        salePrice = effectivePrice;
+      }
     }
 
     const cartItem: CartItem = {
       _id: cartItemId,
       productId: product._id,
       name: product.name,
-      price: selectedProductUnit?.price ?? product.price,
-      salePrice: selectedProductUnit?.salePrice ?? product.salePrice,
+      price: originalPrice,
+      salePrice: salePrice,
       effectivePrice,
       images: itemImages,
       unitImages: itemUnitImages,
@@ -280,6 +279,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       dimensions: product.dimensions,
     };
 
+    // First update local state
     dispatch({ type: 'ADD_ITEM', payload: { item: cartItem } });
     showNotification(`${product.name} added to cart!`, 'success');
 
@@ -288,14 +288,13 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         await fetch('/api/cart/add', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ item: cartItem }) // Send the constructed CartItem
+          body: JSON.stringify({ item: cartItem })
         });
-        // Optionally re-fetch cart from server to ensure sync, or trust optimistic update
-        // loadCartFromServer(); 
+        // Reload from server to ensure consistency
+        await loadCartFromServer();
       } catch (error) {
         console.error('Failed to sync add to cart with server:', error);
         showNotification('Failed to sync cart with server.', 'error');
-        // Potentially revert optimistic update here or handle more gracefully
       }
     }
     setIsLoading(false);
@@ -304,6 +303,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const removeFromCart = async (cartItemId: string) => {
     setIsLoading(true);
     const itemToRemove = state.items.find(item => item._id === cartItemId);
+
+    // First update local state
     dispatch({ type: 'REMOVE_ITEM', payload: { cartItemId } });
     if (itemToRemove) {
       showNotification(`${itemToRemove.name} removed from cart.`, 'success');
@@ -316,10 +317,15 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ cartItemId })
         });
-        // loadCartFromServer();
+        // Reload from server to ensure consistency
+        await loadCartFromServer();
       } catch (error) {
         console.error('Failed to sync remove from cart with server:', error);
         showNotification('Failed to sync cart with server.', 'error');
+        // Revert local state on server error
+        if (itemToRemove) {
+          dispatch({ type: 'ADD_ITEM', payload: { item: itemToRemove } });
+        }
       }
     }
     setIsLoading(false);
@@ -334,11 +340,13 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    const previousQuantity = itemToUpdate?.quantity || 0;
+
+    // First update local state
     dispatch({ type: 'UPDATE_QUANTITY', payload: { cartItemId, quantity } });
     if (itemToUpdate) {
       showNotification(`${itemToUpdate.name} quantity updated.`, 'success');
     }
-
 
     if (isSignedIn) {
       try {
@@ -347,10 +355,13 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ cartItemId, quantity })
         });
-        // loadCartFromServer();
+        // Reload from server to ensure consistency
+        await loadCartFromServer();
       } catch (error) {
         console.error('Failed to sync update quantity with server:', error);
         showNotification('Failed to sync cart with server.', 'error');
+        // Revert local state on server error
+        dispatch({ type: 'UPDATE_QUANTITY', payload: { cartItemId, quantity: previousQuantity } });
       }
     }
     setIsLoading(false);
@@ -358,16 +369,22 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const clearCart = async () => {
     setIsLoading(true);
+    const previousItems = [...state.items];
+
+    // First update local state
     dispatch({ type: 'CLEAR_CART' });
     showNotification('Cart cleared.', 'success');
 
     if (isSignedIn) {
       try {
         await fetch('/api/cart/clear', { method: 'POST' });
-        // loadCartFromServer(); // Server should return empty cart
+        // Reload from server to ensure consistency
+        await loadCartFromServer();
       } catch (error) {
         console.error('Failed to sync clear cart with server:', error);
         showNotification('Failed to sync cart with server.', 'error');
+        // Revert local state on server error
+        dispatch({ type: 'LOAD_CART', payload: { items: previousItems } });
       }
     }
     setIsLoading(false);

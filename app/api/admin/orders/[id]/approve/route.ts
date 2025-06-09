@@ -93,19 +93,19 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
             try {
                 const transactionRequest = {
                     rate: order.shippoShipment.rateId,
-                    label_file_type: "PDF_4x6" as "PDF_4x6", // Or "PDF"
+                    labelFileType: "PDF_4x6" as "PDF_4x6", // Or "PDF"
                     async: false,
                 };
                 const transactionResult = await ShippoService.createShipmentLabel(transactionRequest);
 
                 if (transactionResult.status === 'SUCCESS') {
                     shippoLabelInfo = {
-                        trackingNumber: transactionResult.tracking_number,
-                        labelUrl: transactionResult.label_url,
-                        transactionId: transactionResult.object_id,
-                        // Potentially update cost if it differs, or carrier if Shippo chose one
-                        carrier: transactionResult.rate.provider || order.shippoShipment.carrier,
-                        serviceLevelName: transactionResult.rate.servicelevel.name || order.shippoShipment.serviceLevelName,
+                        trackingNumber: transactionResult.trackingNumber,
+                        labelUrl: transactionResult.labelUrl,
+                        transactionId: transactionResult.objectId,
+                        // Extract carrier and service info from rate if available
+                        carrier: order.shippoShipment.carrier,
+                        serviceLevelName: order.shippoShipment.serviceLevelName,
                     };
                     order.shippoShipment = {
                         ...order.shippoShipment,
@@ -114,14 +114,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
                     order.status = 'processing'; // Order is now being processed for shipment
                 } else {
                     console.warn('Shippo label creation was not immediately successful:', transactionResult.messages);
-                    // Decide if this is a hard failure or if admin should manually create label
-                    // For now, we'll log and continue, order status won't be 'shipped' yet.
                     order.adminApproval.adminNotes = `${adminNotes || order.adminApproval?.adminNotes || ''}\nShippo label warning: ${transactionResult.messages?.map(m => m.text).join(', ')}`;
                 }
             } catch (error) {
                 console.error('Shippo shipment label creation failed:', error);
                 order.adminApproval.adminNotes = `${adminNotes || order.adminApproval?.adminNotes || ''}\nShippo label creation error: ${error instanceof Error ? error.message : 'Unknown error'}`;
-                // Continue without failing the approval, admin can handle shipping manually
             }
         } else {
             order.status = 'approved'; // No shipping info to create label, just approved
@@ -150,7 +147,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
             sentBy: adminUserId,
             subject: 'Order Approved and Processing',
             content: `Your order ${order.orderNumber} has been approved and is now being processed. You will receive another email when it ships.`,
-            type: 'approval'
+            type: 'approval',
+            sentAt: new Date()
         });
 
         await order.save();

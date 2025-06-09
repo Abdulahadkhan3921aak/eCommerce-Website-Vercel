@@ -373,7 +373,7 @@ export default function AdminProductsPage() {
                               )}
                               {product.units?.some(u => u.saleConfig?.isOnSale) && (
                                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-                                  Unit sales
+                                  Unit sales active
                                 </span>
                               )}
                             </div>
@@ -381,7 +381,16 @@ export default function AdminProductsPage() {
                             <span className="text-gray-400">No sale</span>
                           )}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{product.stock}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                          {product.units && product.units.length > 0 ? (
+                            <div className="text-xs">
+                              <div>Total: {product.totalStock || product.units.reduce((sum, unit) => sum + (unit.stock || 0), 0)}</div>
+                              <div>Units: {product.units.length}</div>
+                            </div>
+                          ) : (
+                            <span>{product.stock || 0}</span>
+                          )}
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           <Link href={`/admin/products/edit/${product._id}`} className="text-purple-600 hover:text-purple-900 mr-3">
                             Edit
@@ -464,7 +473,16 @@ export default function AdminProductsPage() {
                     </div>
                     <div>
                       <span className="text-gray-500">Stock:</span>
-                      <span className="font-medium ml-1">{product.stock}</span>
+                      <div className="mt-1">
+                        {product.units && product.units.length > 0 ? (
+                          <div className="text-xs">
+                            <div>Total: {product.totalStock || product.units.reduce((sum, unit) => sum + (unit.stock || 0), 0)}</div>
+                            <div>Units: {product.units.length}</div>
+                          </div>
+                        ) : (
+                          <span className="font-medium">{product.stock || 0}</span>
+                        )}
+                      </div>
                     </div>
                     <div className="col-span-2">
                       <span className="text-gray-500">Sale:</span>

@@ -26,15 +26,21 @@ export async function POST(request: NextRequest) {
             cart = new Cart({ clerkId: userId, items: [] })
         }
 
-        // Check if item already exists in cart
-        const existingItemIndex = cart.items.findIndex(cartItem => cartItem.unitId === item.unitId && cartItem.productId.toString() === item.productId)
+        // Generate consistent cart item ID
+        const cartItemId = `${item.productId}_${item.unitId || 'default'}`
+
+        // Check if item already exists in cart using the same ID format
+        const existingItemIndex = cart.items.findIndex(cartItem => {
+            const existingId = `${cartItem.productId.toString()}_${cartItem.unitId || 'default'}`
+            return existingId === cartItemId
+        })
 
         if (existingItemIndex > -1) {
             // Update quantity of existing item
             cart.items[existingItemIndex].quantity += item.quantity
-            cart.items[existingItemIndex].availableStock = item.availableStock || cart.items[existingItemIndex].availableStock
+            cart.items[existingItemIndex].stock = item.stock || cart.items[existingItemIndex].stock
         } else {
-            // Add new item to cart
+            // Add new item to cart with proper field mapping
             cart.items.push({
                 productId: item.productId,
                 unitId: item.unitId,
@@ -44,10 +50,13 @@ export async function POST(request: NextRequest) {
                 effectivePrice: item.effectivePrice,
                 quantity: item.quantity,
                 images: item.images || [],
+                unitImages: item.unitImages,
                 category: item.category,
                 size: item.size,
                 color: item.color,
-                availableStock: item.stock || 0
+                stock: item.stock || 0,
+                weight: item.weight,
+                dimensions: item.dimensions
             })
         }
 

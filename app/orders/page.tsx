@@ -11,6 +11,7 @@ interface OrderItem {
   quantity: number
   size?: string
   color?: string
+  unitId?: string
   image: string
 }
 
