@@ -2,176 +2,253 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth, currentUser } from '@clerk/nextjs/server';
 import dbConnect from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
-import Product from '@/lib/models/Product'; // For item details if needed for recalculation
-import ShippoService, { ShippoAddressInput, ShippoParcel, ShippoShipmentRequestData } from '@/lib/services/shippo';
+import Product from '@/lib/models/Product';
+import ShippoService, { ShippoAddressInput, ShippoParcel, ShippoShipmentRequestData, DistanceUnitEnum, WeightUnitEnum } from '@/lib/services/shippo';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+    const resolvedParams = await params;
+    console.log('📦 [UpdateShipping] Starting shipping details update for order:', resolvedParams.id);
+
     try {
         const { userId: adminUserId } = await auth();
         const adminUser = await currentUser();
 
+        console.log('👤 [UpdateShipping] Admin user check:', { adminUserId: !!adminUserId, hasUser: !!adminUser });
+
         if (!adminUserId || !adminUser) {
+            console.error('❌ [UpdateShipping] Unauthorized access attempt');
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
+
         const userRole = adminUser?.privateMetadata?.role as string;
+        console.log('🏷️ [UpdateShipping] User role:', userRole);
+
         if (userRole !== 'admin') {
+            console.error('❌ [UpdateShipping] Non-admin user attempted access');
             return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
         }
 
-        const { shippingWeight, shippingDimensions } = await request.json();
-        const orderId = params.id;
+        // Read request body once and extract all needed data
+        const requestData = await request.json();
+        const { shippingWeight, shippingDimensions, selectedRateId, rateDetails } = requestData;
+        const orderId = resolvedParams.id;
 
-        if (!shippingWeight || !shippingDimensions ||
-            typeof shippingWeight !== 'number' || shippingWeight <= 0 ||
-            typeof shippingDimensions.length !== 'number' || shippingDimensions.length <= 0 ||
-            typeof shippingDimensions.width !== 'number' || shippingDimensions.width <= 0 ||
-            typeof shippingDimensions.height !== 'number' || shippingDimensions.height <= 0) {
-            return NextResponse.json({ error: 'Invalid shipping weight or dimensions provided.' }, { status: 400 });
-        }
+        console.log('📋 [UpdateShipping] Received shipping data:', {
+            orderId,
+            weight: shippingWeight,
+            dimensions: shippingDimensions,
+            selectedRateId,
+            hasRateDetails: !!rateDetails
+        });
 
-        await dbConnect();
-        const order = await Order.findById(orderId).populate('items.productId'); // Populate to get product details if needed for weight/dims
-
-        if (!order) {
-            return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-        }
-
-        // Prevent updates if order is already shipped, cancelled, or rejected
-        if (['shipped', 'cancelled', 'rejected', 'delivered'].includes(order.status!)) {
-            return NextResponse.json({ error: `Order status is '${order.status}', cannot update shipping details.` }, { status: 400 });
-        }
-
-        const originalTotal = order.total;
-        const originalShippingCost = order.shippingCost || 0;
-
-        // Update order with new physical properties
-        order.shippingWeight = shippingWeight;
-        order.shippingDimensions = shippingDimensions;
-
-        // Recalculate shipping cost using Shippo
-        // Construct Shippo address_from (sender address from .env)
-        const addressFrom: ShippoAddressInput = {
-            name: process.env.SHIPPO_SENDER_NAME || "Butterflies Beading",
-            street1: process.env.SHIPPO_SENDER_STREET1 || "123 Artisan Way",
-            city: process.env.SHIPPO_SENDER_CITY || "Craftsville",
-            state: process.env.SHIPPO_SENDER_STATE || "NY",
-            zip: process.env.SHIPPO_SENDER_ZIP || "10001",
-            country: process.env.SHIPPO_SENDER_COUNTRY || "US",
-        };
-
-        const addressTo: ShippoAddressInput = {
-            name: order.shippingAddress.name,
-            street1: order.shippingAddress.line1,
-            street2: order.shippingAddress.line2,
-            city: order.shippingAddress.city,
-            state: order.shippingAddress.state,
-            zip: order.shippingAddress.postal_code,
-            country: order.shippingAddress.country,
-            isResidential: order.shippingAddress.residential, // Use camelCase
-        };
-
-        const parcel: ShippoParcel = {
-            length: String(shippingDimensions.length),
-            width: String(shippingDimensions.width),
-            height: String(shippingDimensions.height),
-            distanceUnit: 'in', // Use camelCase
-            weight: String(shippingWeight),
-            massUnit: 'lb', // Use camelCase
-        };
-
-        const shipmentRequestData: ShippoShipmentRequestData = {
-            addressFrom,
-            addressTo,
-            parcels: [parcel],
-            async: false,
-        };
-
-        let newShippingCost = originalShippingCost;
-        let bestRateDetails = order.shippoShipment; // Keep original if no new rate found or error
-
-        try {
-            const shippoApiRates = await ShippoService.getRates(shipmentRequestData);
-            if (shippoApiRates && shippoApiRates.length > 0) {
-                // For simplicity, let's assume we pick the cheapest rate or a specific one.
-                // If the original order had a specific service level, try to find a matching one.
-                let chosenRate = shippoApiRates.find(r => r.servicelevel.token === order.shippoShipment?.serviceLevelToken);
-                if (!chosenRate) {
-                    chosenRate = shippoApiRates.sort((a, b) => parseFloat(a.amount) - parseFloat(b.amount))[0];
-                }
-
-                if (chosenRate) {
-                    newShippingCost = parseFloat(chosenRate.amount);
-                    bestRateDetails = {
-                        rateId: chosenRate.objectId, // Use objectId
-                        carrier: chosenRate.provider,
-                        serviceLevelToken: chosenRate.servicelevel.token,
-                        serviceLevelName: `${chosenRate.provider} ${chosenRate.servicelevel.name}`,
-                        cost: newShippingCost,
-                        estimatedDeliveryDays: chosenRate.estimatedDays,
-                    };
-                }
-            } else {
-                console.warn(`No new shipping rates found for order ${orderId} after dimension update.`);
+        // If this is just updating package details (no rate selected), get all rates
+        if (!selectedRateId) {
+            if (!shippingWeight || !shippingDimensions ||
+                typeof shippingWeight !== 'number' || shippingWeight <= 0 ||
+                typeof shippingDimensions.length !== 'number' || shippingDimensions.length <= 0 ||
+                typeof shippingDimensions.width !== 'number' || shippingDimensions.width <= 0 ||
+                typeof shippingDimensions.height !== 'number' || shippingDimensions.height <= 0) {
+                console.error('❌ [UpdateShipping] Invalid shipping data provided');
+                return NextResponse.json({ error: 'Invalid shipping weight or dimensions provided.' }, { status: 400 });
             }
-        } catch (rateError) {
-            console.error(`Error fetching new shipping rates for order ${orderId}:`, rateError);
+
+            await dbConnect();
+            console.log('🔗 [UpdateShipping] Database connected');
+
+            const order = await Order.findById(orderId).populate('items.productId');
+
+            if (!order) {
+                console.error('❌ [UpdateShipping] Order not found:', orderId);
+                return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+            }
+
+            console.log('📦 [UpdateShipping] Order found:', {
+                orderNumber: order.orderNumber,
+                status: order.status,
+                originalTotal: order.total
+            });
+
+            // Update order with package details only
+            order.shippingWeight = shippingWeight;
+            order.shippingDimensions = shippingDimensions;
+
+            // Get all available shipping rates
+            const addressFrom: ShippoAddressInput = {
+                name: process.env.SHIPPO_SENDER_NAME || "Butterflies Beading",
+                street1: process.env.SHIPPO_SENDER_STREET1 || "123 Artisan Way",
+                city: process.env.SHIPPO_SENDER_CITY || "Craftsville",
+                state: process.env.SHIPPO_SENDER_STATE || "NY",
+                zip: process.env.SHIPPO_SENDER_ZIP || "10001",
+                country: process.env.SHIPPO_SENDER_COUNTRY || "US",
+            };
+
+            const addressTo: ShippoAddressInput = {
+                name: order.shippingAddress.name,
+                street1: order.shippingAddress.line1,
+                street2: order.shippingAddress.line2,
+                city: order.shippingAddress.city,
+                state: order.shippingAddress.state,
+                zip: order.shippingAddress.postal_code,
+                country: order.shippingAddress.country,
+                is_residential: order.shippingAddress.residential,
+            };
+
+            const parcel: ShippoParcel = {
+                length: String(shippingDimensions.length),
+                width: String(shippingDimensions.width),
+                height: String(shippingDimensions.height),
+                distanceUnit: DistanceUnitEnum.In,
+                weight: String(shippingWeight),
+                massUnit: WeightUnitEnum.Lb,
+            };
+
+            const shipmentRequestData: ShippoShipmentRequestData = {
+                addressFrom,
+                addressTo,
+                parcels: [parcel],
+                async: false,
+            };
+
+            let availableRates = [];
+
+            try {
+                console.log('🚚 [UpdateShipping] Fetching all available shipping rates...');
+                const shippoApiRates = await ShippoService.getRates(shipmentRequestData);
+
+                if (shippoApiRates && shippoApiRates.length > 0) {
+                    console.log('✅ [UpdateShipping] Rates received:', shippoApiRates.length);
+
+                    // Format rates for frontend selection
+                    availableRates = shippoApiRates.map(rate => ({
+                        rateId: rate.objectId,
+                        carrier: rate.provider,
+                        serviceName: `${rate.provider} ${rate.servicelevel.name}`,
+                        serviceLevelToken: rate.servicelevel.token,
+                        serviceLevelName: rate.servicelevel.name,
+                        cost: parseFloat(rate.amount),
+                        currency: rate.currency,
+                        estimatedDays: rate.estimatedDays,
+                        deliveryEstimate: rate.estimatedDays
+                            ? `${rate.estimatedDays} business day${rate.estimatedDays !== 1 ? 's' : ''}`
+                            : 'Standard delivery',
+                        attributes: rate.attributes || [],
+                        providerImage: rate.providerImage75,
+                        arrivesBy: rate.arrivesBy,
+                        durationTerms: rate.durationTerms,
+                        messages: rate.messages || []
+                    })).sort((a, b) => a.cost - b.cost); // Sort by cost
+                }
+            } catch (rateError) {
+                console.error(`❌ [UpdateShipping] Error fetching rates for order ${orderId}:`, rateError);
+                return NextResponse.json({
+                    error: 'Failed to fetch shipping rates',
+                    details: rateError instanceof Error ? rateError.message : 'Unknown error'
+                }, { status: 500 });
+            }
+
+            await order.save();
+            console.log('✅ [UpdateShipping] Package details updated, rates fetched');
+
+            return NextResponse.json({
+                success: true,
+                message: 'Package details updated successfully',
+                order: order,
+                availableRates: availableRates,
+                totalRates: availableRates.length
+            });
         }
+        // If rate is selected, apply it to the order
+        else {
+            await dbConnect();
+            const order = await Order.findById(orderId).populate('items.productId');
 
-        order.shippingCost = newShippingCost;
-        order.shippoShipment = { ...order.shippoShipment, ...bestRateDetails, cost: newShippingCost }; // Update Shippo details
-        order.total = order.subtotal + newShippingCost + (order.tax || 0); // Recalculate total (assuming tax is on subtotal + shipping)
+            if (!order) {
+                return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+            }
 
-        let emailContentForUser = `Shipping details for your order ${order.orderNumber} have been updated by our team.`;
+            // Prevent updates if order is already shipped, cancelled, or rejected
+            if (['shipped', 'cancelled', 'rejected', 'delivered'].includes(order.status!)) {
+                console.warn('⚠️ [UpdateShipping] Cannot update - order status is:', order.status);
+                return NextResponse.json({ error: `Order status is '${order.status}', cannot update shipping details.` }, { status: 400 });
+            }
 
-        if (order.total !== originalTotal) {
-            order.isPriceAdjusted = true;
-            order.status = 'pending_payment_adjustment';
-            order.paymentStatus = 'pending_adjustment';
+            // Validate that rateDetails are provided
+            if (!rateDetails) {
+                return NextResponse.json({ error: 'Rate details are required when selecting a rate' }, { status: 400 });
+            }
 
-            // Cancel the previous payment intent if it exists and is not yet captured/succeeded
-            if (order.stripePaymentIntentId) {
-                try {
-                    const pi = await stripe.paymentIntents.retrieve(order.stripePaymentIntentId);
-                    if (pi.status === 'requires_payment_method' || pi.status === 'requires_confirmation' || pi.status === 'requires_action' || pi.status === 'processing' || pi.status === 'requires_capture') {
-                        await stripe.paymentIntents.cancel(order.stripePaymentIntentId);
-                        order.stripePaymentIntentId = undefined; // Clear old PI
-                        // A new PI will need to be created for the new amount.
-                        // This part of the flow (generating new payment link) is complex and
-                        // might be better handled by redirecting user or sending a Stripe Invoice.
-                        // For now, we mark it for adjustment.
+            const originalTotal = order.total;
+            const originalShippingCost = order.shippingCost || 0;
+            const newShippingCost = rateDetails.cost;
+
+            console.log('💰 [UpdateShipping] Applying selected rate:', {
+                carrier: rateDetails.carrier,
+                service: rateDetails.serviceName,
+                oldCost: originalShippingCost,
+                newCost: newShippingCost
+            });
+
+            // Update order with selected shipping details
+            order.shippingCost = newShippingCost;
+            order.shippoShipment = {
+                ...order.shippoShipment,
+                rateId: rateDetails.rateId,
+                carrier: rateDetails.carrier,
+                serviceLevelToken: rateDetails.serviceLevelToken,
+                serviceLevelName: rateDetails.serviceName,
+                cost: newShippingCost,
+                estimatedDeliveryDays: rateDetails.estimatedDays,
+            };
+            order.total = order.subtotal + newShippingCost + (order.tax || 0);
+
+            let emailContentForUser = `Shipping rate has been selected for your order ${order.orderNumber}.`;
+
+            if (order.total !== originalTotal) {
+                console.log('💳 [UpdateShipping] Price adjustment required - updating payment status');
+                order.isPriceAdjusted = true;
+                order.status = 'pending_payment_adjustment';
+                order.paymentStatus = 'pending_adjustment';
+
+                // Cancel the previous payment intent if it exists
+                if (order.stripePaymentIntentId) {
+                    try {
+                        const pi = await stripe.paymentIntents.retrieve(order.stripePaymentIntentId);
+                        if (['requires_payment_method', 'requires_confirmation', 'requires_action', 'processing', 'requires_capture'].includes(pi.status)) {
+                            await stripe.paymentIntents.cancel(order.stripePaymentIntentId);
+                            order.stripePaymentIntentId = undefined;
+                        }
+                    } catch (piError) {
+                        console.error(`Failed to cancel previous Payment Intent ${order.stripePaymentIntentId}:`, piError);
                     }
-                } catch (piError) {
-                    console.error(`Failed to cancel previous Payment Intent ${order.stripePaymentIntentId}:`, piError);
                 }
+                emailContentForUser += `\nThe total amount for your order has changed from $${originalTotal.toFixed(2)} to $${order.total.toFixed(2)}. Please visit your order page to complete the payment for the new amount.`;
             }
-            emailContentForUser += `\nThe total amount for your order has changed from $${originalTotal.toFixed(2)} to $${order.total.toFixed(2)}. Please visit your order page or follow the link in a subsequent email to complete the payment for the new amount.`;
-            // TODO: Trigger a process to generate a new payment link/invoice for the difference or new total.
+
+            order.emailHistory.push({
+                sentBy: adminUserId,
+                type: 'shipping_rate_selected',
+                subject: `Shipping update for order ${order.orderNumber}`,
+                content: emailContentForUser,
+                sentAt: new Date(),
+            });
+
+            await order.save();
+            console.log('✅ [UpdateShipping] Shipping rate applied successfully');
+
+            return NextResponse.json({
+                success: true,
+                message: 'Shipping rate selected successfully',
+                order: order,
+                priceChanged: order.total !== originalTotal,
+                selectedRate: rateDetails
+            });
         }
-
-        order.emailHistory.push({
-            sentBy: adminUserId,
-            type: 'shipping_update',
-            subject: `Update regarding your order ${order.orderNumber}`,
-            content: emailContentForUser,
-            sentAt: new Date(),
-        });
-
-        await order.save();
-
-        // TODO: Send actual email to customer (e.g., using an email service + Inngest)
-
-        return NextResponse.json({
-            success: true,
-            message: 'Shipping details updated. If price changed, order status is now pending payment adjustment.',
-            order: order,
-            priceChanged: order.total !== originalTotal,
-        });
 
     } catch (error) {
-        console.error('Error updating shipping details:', error);
+        console.error('❌ [UpdateShipping] Error updating shipping details:', error);
         return NextResponse.json({
             error: 'Failed to update shipping details',
             details: error instanceof Error ? error.message : 'Unknown error'

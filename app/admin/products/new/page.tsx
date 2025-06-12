@@ -6,10 +6,12 @@ import EnhancedProductForm, { EnhancedProductFormData } from '@/components/admin
 import Header from '@/components/Header'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { usePopup } from '@/lib/contexts/PopupContext'
 
 export default function NewProductPage() {
   const router = useRouter()
   const [useEnhancedForm, setUseEnhancedForm] = useState(false)
+  const { showAlert } = usePopup()
 
   const handleSimpleSubmit = async (data: ProductFormData) => {
     const response = await fetch('/api/products', {
@@ -23,7 +25,7 @@ export default function NewProductPage() {
       throw new Error(errorData.error || 'Failed to create product')
     }
 
-    alert('Product created successfully!')
+    showAlert('Product created successfully!', 'success')
     router.push('/admin/products')
   }
 
@@ -39,7 +41,7 @@ export default function NewProductPage() {
       throw new Error(errorData.error || 'Failed to create product')
     }
 
-    alert('Product created successfully!')
+    showAlert('Product created successfully!', 'success')
     router.push('/admin/products')
   }
 
@@ -61,8 +63,8 @@ export default function NewProductPage() {
             <button
               onClick={() => setUseEnhancedForm(false)}
               className={`px-3 py-1 text-sm rounded ${!useEnhancedForm
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                ? 'bg-purple-600 text-white'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                 }`}
             >
               Simple
@@ -70,8 +72,8 @@ export default function NewProductPage() {
             <button
               onClick={() => setUseEnhancedForm(true)}
               className={`px-3 py-1 text-sm rounded ${useEnhancedForm
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                ? 'bg-purple-600 text-white'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                 }`}
             >
               Enhanced

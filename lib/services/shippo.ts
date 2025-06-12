@@ -1,10 +1,14 @@
-import { Shippo, Address, Rate, Transaction } from 'shippo'; // Import Shippo class and response types
+import { Shippo, Address, Rate, Transaction, DistanceUnitEnum, WeightUnitEnum } from 'shippo'; // Import Shippo class and response types
+
+// Export the enums for use in other files
+export { DistanceUnitEnum, WeightUnitEnum };
 
 const shippoToken = process.env.SHIPPO_API_KEY;
 let shippoInstance: Shippo | null = null;
 
 if (shippoToken) {
     shippoInstance = new Shippo({ apiKeyHeader: shippoToken });
+    console.log('✅ [Shippo] Service initialized successfully');
 } else {
     console.error("CRITICAL: Shippo API key (SHIPPO_API_KEY) is not set in environment variables. Shippo functionality will be disabled.");
 }
@@ -15,14 +19,14 @@ export interface ShippoAddressInput {
     street2?: string;
     city: string;
     state: string;
-    zip: string;
+    zip: string; // Changed from zip to match Shippo API expectation
     country: string; // ISO 2-letter country code
     phone?: string;
     email?: string;
-    isResidential?: boolean; // Changed from is_residential to match SDK
+    is_residential?: boolean; // Use snake_case for Shippo SDK
     validate?: boolean; // Request validation
     company?: string;
-    metadata?: string; // Added from user example
+    metadata?: string;
 }
 
 // This interface represents the structure of an address object returned by Shippo API,
@@ -59,12 +63,36 @@ export interface ShippoParcel {
     length: string;
     width: string;
     height: string;
-    distanceUnit: 'cm' | 'in' | 'ft' | 'mm' | 'm' | 'yd';
+    distanceUnit: DistanceUnitEnum;
     weight: string;
-    massUnit: 'g' | 'oz' | 'lb' | 'kg';
-    template?: string;
-    metadata?: string;
+    massUnit: WeightUnitEnum;
+    // Add optional original units for reference
+    originalUnits?: {
+        dimensions: 'in' | 'cm';
+        weight: 'lb' | 'kg';
+    };
 }
+
+// Add unit conversion helpers
+export const UnitConverters = {
+    // Weight conversions
+    lbToKg: (lb: number): number => lb * 0.453592,
+    kgToLb: (kg: number): number => kg * 2.20462,
+
+    // Dimension conversions
+    inToCm: (inches: number): number => inches * 2.54,
+    cmToIn: (cm: number): number => cm * 0.393701,
+
+    // Convert weight to pounds (Shippo preferred)
+    convertWeightToLb: (weight: number, unit: 'lb' | 'kg'): number => {
+        return unit === 'kg' ? UnitConverters.kgToLb(weight) : weight;
+    },
+
+    // Convert dimensions to inches (Shippo preferred)
+    convertDimensionToIn: (dimension: number, unit: 'in' | 'cm'): number => {
+        return unit === 'cm' ? UnitConverters.cmToIn(dimension) : dimension;
+    }
+};
 
 export interface ShippoShipmentRequestData {
     addressFrom: ShippoAddressInput;
@@ -74,6 +102,11 @@ export interface ShippoShipmentRequestData {
     async?: boolean;
     carrierAccounts?: string[];
     metadata?: string;
+    // Add original units for reference
+    originalUnits?: {
+        dimensions: 'in' | 'cm';
+        weight: 'lb' | 'kg';
+    };
 }
 
 // Using Shippo SDK's Rate type directly
@@ -136,11 +169,14 @@ const ShippoService = {
         messages: string[];
         isResidential?: boolean;
     }> => {
+        console.log('🔍 [Shippo] Starting address validation for:', address.city, address.state);
+
         if (!shippoInstance) {
+            console.error('❌ [Shippo] Client not initialized - API key missing');
             throw new Error("Shippo client is not initialized. API key may be missing.");
         }
         try {
-            // Map our input to Shippo SDK's expected format
+            // Map our input to Shippo SDK's expected format with snake_case
             const addressToValidate = {
                 name: address.name,
                 company: address.company,
@@ -152,18 +188,23 @@ const ShippoService = {
                 country: address.country,
                 phone: address.phone,
                 email: address.email,
-                isResidential: address.isResidential, // Use camelCase
+                is_residential: address.is_residential, // Use snake_case for SDK
                 validate: address.validate === undefined ? true : address.validate,
                 metadata: address.metadata,
             };
 
             const response: Address = await shippoInstance.addresses.create(addressToValidate as any);
 
+            console.log('✅ [Shippo] Address validation response received:', {
+                isValid: response.isValid,
+                validationMessages: response.validationResults?.messages?.length || 0
+            });
+
             const sdkValidationResults = response.validationResults;
             const validationMessages = sdkValidationResults?.messages?.map(m => m.text || '').filter(text => text) || [];
 
             // Determine residential status from validation results, then from response, then from input
-            let outputIsResidential = sdkValidationResults?.isResidential ?? response.isResidential ?? address.isResidential;
+            let outputIsResidential = sdkValidationResults?.isResidential ?? response.isResidential ?? address.is_residential;
 
             const correctedShippoAddress: ShippoAddressInput | null = response ? {
                 name: response.name || address.name,
@@ -176,11 +217,9 @@ const ShippoService = {
                 country: response.country || address.country,
                 phone: response.phone || address.phone,
                 email: response.email || address.email,
-                isResidential: outputIsResidential,
+                is_residential: outputIsResidential,
             } : null;
 
-            // Shippo's top-level `isValid` on Address object might be the overall status
-            // or rely on `validationResults.isValid`
             const isValidOverall = sdkValidationResults?.isValid ?? response.isValid ?? false;
 
             return {
@@ -190,29 +229,41 @@ const ShippoService = {
                 isResidential: outputIsResidential,
             };
         } catch (error: any) {
-            console.error("Shippo API call error during address validation:", error);
+            console.error("❌ [Shippo] Address validation error:", error.message);
             const errorMessage = error.detail || (error.messages && error.messages[0]?.text) || error.message || 'Unknown Shippo API error';
             throw new Error(`Shippo API error during address validation: ${errorMessage}`);
         }
     },
 
     getRates: async (shipmentData: ShippoShipmentRequestData): Promise<AppShippoRate[]> => {
+        console.log('🚚 [Shippo] Getting rates for shipment:', {
+            from: `${shipmentData.addressFrom.city}, ${shipmentData.addressFrom.state}`,
+            to: `${shipmentData.addressTo.city}, ${shipmentData.addressTo.state}`,
+            parcelCount: Array.isArray(shipmentData.parcels) ? shipmentData.parcels.length : 1
+        });
+
         if (!shippoInstance) {
+            console.error('❌ [Shippo] Client not initialized - API key missing');
             throw new Error("Shippo client is not initialized. API key may be missing.");
         }
         try {
-            // Create shipment using SDK format
+            // Create shipment using SDK format with snake_case field names
             const shipmentToCreate = {
-                addressFrom: shipmentData.addressFrom,
-                addressTo: shipmentData.addressTo,
+                addressFrom: shipmentData.addressFrom, // Use snake_case for SDK
+                addressTo: shipmentData.addressTo,     // Use snake_case for SDK
                 parcels: shipmentData.parcels,
-                shipmentDate: shipmentData.shipmentDate,
-                carrierAccounts: shipmentData.carrierAccounts,
+                shipment_date: shipmentData.shipmentDate,
+                carrier_accounts: shipmentData.carrierAccounts,
                 async: shipmentData.async === undefined ? false : shipmentData.async,
                 metadata: shipmentData.metadata,
             };
 
             const shipment = await shippoInstance.shipments.create(shipmentToCreate as any);
+
+            console.log('📦 [Shippo] Shipment created, rates received:', {
+                totalRates: shipment.rates?.length || 0,
+                shipmentId: shipment.objectId
+            });
 
             if (shipment.rates && shipment.rates.length > 0) {
                 // Filter out rates with errors and map valid ones
@@ -235,6 +286,7 @@ const ShippoService = {
                 });
 
                 if (validRates.length > 0) {
+                    console.log('✅ [Shippo] Valid rates found:', validRates.length);
                     return validRates.map((rate: Rate) => ({
                         objectId: rate.objectId,
                         amount: rate.amount,
@@ -262,6 +314,7 @@ const ShippoService = {
                 }
             }
 
+            console.warn('⚠️ [Shippo] No valid rates found for shipment');
             // If we get here, either no rates or all rates were filtered out
             if (shipment.messages && shipment.messages.length > 0) {
                 // Check if all messages are just carrier account warnings (not fatal errors)
@@ -285,7 +338,7 @@ const ShippoService = {
 
             return [];
         } catch (error: any) {
-            console.error("Shippo getRates error in service:", error);
+            console.error("❌ [Shippo] getRates error:", error.message);
 
             // Handle rate limiting specifically
             if (error.message?.includes('Too Many Requests') || error.status === 429) {
@@ -306,7 +359,10 @@ const ShippoService = {
     },
 
     createShipmentLabel: async (transactionRequest: ShippoTransactionRequest): Promise<AppShippoTransaction> => {
+        console.log('🏷️ [Shippo] Creating shipment label for rate:', transactionRequest.rate);
+
         if (!shippoInstance) {
+            console.error('❌ [Shippo] Client not initialized - API key missing');
             throw new Error("Shippo client is not initialized. API key may be missing.");
         }
         try {
@@ -317,6 +373,12 @@ const ShippoService = {
                 metadata: transactionRequest.metadata,
             };
             const transaction: Transaction = await shippoInstance.transactions.create(transactionToCreate as any);
+
+            console.log('✅ [Shippo] Label created successfully:', {
+                transactionId: transaction.objectId,
+                status: transaction.status,
+                trackingNumber: transaction.trackingNumber
+            });
 
             // Map SDK's Transaction to AppShippoTransaction
             return {
@@ -337,7 +399,7 @@ const ShippoService = {
                 test: transaction.test,
             };
         } catch (error: any) {
-            console.error("Shippo createShipmentLabel error in service:", error);
+            console.error("❌ [Shippo] Label creation error:", error.message);
             const errorMessage = error.detail || (error.messages && error.messages[0]?.text) || error.message || 'Unknown Shippo API error';
             if (error instanceof Error && error.message.includes('Shippo API error')) {
                 throw error;

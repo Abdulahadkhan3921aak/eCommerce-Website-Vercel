@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import Product from '@/lib/models/Product';
 import { isAdmin } from '@/lib/auth/adminCheck';
-import { getProductDisplayPrice } from '@/lib/types/product';
+import { normalizeCategory, isValidCategory } from '@/lib/types/product';
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     console.log('Database connected successfully');
 
     const { searchParams } = new URL(request.url);
-    const category = searchParams.get('category');
+    const categoryParam = searchParams.get('category');
     const featured = searchParams.get('featured');
     const search = searchParams.get('search');
     const sortBy = searchParams.get('sortBy') || 'featured';
@@ -21,13 +21,17 @@ export async function GET(request: NextRequest) {
     const minPrice = parseFloat(searchParams.get('minPrice') || '0');
     const maxPrice = parseFloat(searchParams.get('maxPrice') || '1000');
 
-    console.log('Query parameters:', { category, featured, search, sortBy, page, limit, minPrice, maxPrice });
+    console.log('Query parameters:', { categoryParam, featured, search, sortBy, page, limit, minPrice, maxPrice });
 
     // Build query
     let query: any = {};
 
-    if (category && category !== 'all') {
-      query.category = category;
+    if (categoryParam && categoryParam !== 'all') {
+      // Normalize category to singular form
+      const normalizedCategory = normalizeCategory(categoryParam);
+      if (normalizedCategory) {
+        query.category = normalizedCategory;
+      }
     }
 
     if (featured === 'true') {
@@ -112,16 +116,7 @@ export async function GET(request: NextRequest) {
 
     // Process products to ensure proper pricing and stock
     const processedProducts = products.map(product => {
-      // Log product structure for debugging
-      console.log('Processing product:', product.name, {
-        images: product.images?.length || 0,
-        units: product.units?.length || 0,
-        unitImages: product.units?.map(unit => ({
-          unitId: unit.unitId,
-          images: unit.images?.length || 0,
-          firstImage: unit.images?.[0]
-        }))
-      });
+
 
       // Ensure required fields exist
       if (typeof product.featured === 'undefined') {
@@ -239,6 +234,18 @@ export async function POST(request: NextRequest) {
     await dbConnect();
 
     const body = await request.json();
+
+    // Validate and normalize category
+    if (body.category) {
+      const normalizedCategory = normalizeCategory(body.category);
+      if (!normalizedCategory) {
+        return NextResponse.json({
+          error: 'Invalid category. Must be one of: ring, earring, bracelet, necklace (singular forms only)'
+        }, { status: 400 });
+      }
+      body.category = normalizedCategory;
+    }
+
     // Remove slug requirement since it's auto-generated
     if (!body.name || !body.description || !body.price || !body.category) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });

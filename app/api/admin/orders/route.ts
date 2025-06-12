@@ -15,11 +15,11 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search')
 
     let filter: any = {}
-    
+
     if (status && status !== 'all') {
       filter.status = status
     }
-    
+
     if (search) {
       filter.$or = [
         { orderNumber: { $regex: search, $options: 'i' } },

@@ -134,22 +134,9 @@ const CartContext = React.createContext<CartContextType | undefined>(undefined)
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const { isSignedIn, userId } = useAuth()
+  const [isHydrated, setIsHydrated] = React.useState(false)
 
-  const [state, dispatch] = useReducer(cartReducer, { items: [] }, (initial) => {
-    if (typeof window !== 'undefined') {
-      const storedCart = localStorage.getItem('butterfliesCart');
-      if (storedCart) {
-        try {
-          const parsedCart = JSON.parse(storedCart);
-          return parsedCart && Array.isArray(parsedCart.items) ? parsedCart : initial;
-        } catch (e) {
-          console.error("Failed to parse cart from localStorage", e);
-          localStorage.removeItem('butterfliesCart');
-        }
-      }
-    }
-    return initial;
-  });
+  const [state, dispatch] = useReducer(cartReducer, { items: [] })
 
   const [isLoading, setIsLoading] = React.useState(false)
   const [notification, setNotification] = React.useState<CartNotification>({
@@ -158,19 +145,40 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     type: 'success'
   })
 
-  // Load cart from server when user signs in
+  // Handle hydration and initial cart loading
   useEffect(() => {
-    if (isSignedIn && userId) {
-      loadCartFromServer();
+    setIsHydrated(true)
+
+    // Load from localStorage only after hydration
+    if (typeof window !== 'undefined') {
+      const storedCart = localStorage.getItem('butterfliesCart')
+      if (storedCart) {
+        try {
+          const parsedCart = JSON.parse(storedCart)
+          if (parsedCart && Array.isArray(parsedCart.items)) {
+            dispatch({ type: 'LOAD_CART', payload: { items: parsedCart.items } })
+          }
+        } catch (e) {
+          console.error("Failed to parse cart from localStorage", e)
+          localStorage.removeItem('butterfliesCart')
+        }
+      }
     }
-  }, [isSignedIn, userId]);
+  }, [])
+
+  // Load cart from server when user signs in (but only after hydration)
+  useEffect(() => {
+    if (isHydrated && isSignedIn && userId) {
+      loadCartFromServer()
+    }
+  }, [isSignedIn, userId, isHydrated])
 
   // Persist cart to localStorage only for non-signed-in users or after successful server sync
   useEffect(() => {
-    if (typeof window !== 'undefined' && !isSignedIn) {
-      localStorage.setItem('butterfliesCart', JSON.stringify(state));
+    if (isHydrated && typeof window !== 'undefined' && !isSignedIn) {
+      localStorage.setItem('butterfliesCart', JSON.stringify(state))
     }
-  }, [state.items, isSignedIn]);
+  }, [state.items, isSignedIn, isHydrated])
 
   // Auto-hide notification after 3 seconds
   useEffect(() => {
@@ -401,7 +409,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   return (
     <CartContext.Provider
       value={{
-        items: state.items,
+        items: isHydrated ? state.items : [], // Return empty array until hydrated
         isLoading,
         addToCart,
         removeFromCart,

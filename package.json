@@ -9,8 +9,8 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@clerk/nextjs": "^6.20.1",
-    "@clerk/shared": "^3.9.6",
+    "@clerk/backend": "^2.0.0",
+    "@clerk/nextjs": "^6.21.0",
     "@stripe/stripe-js": "^2.0.0",
     "@tailwindcss/oxide": "^4.1.8",
     "@types/nodemailer": "^6.4.17",

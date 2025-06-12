@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useCart } from '@/lib/contexts/CartContext'
+import { usePopup } from '@/lib/contexts/PopupContext'
 import Header from "@/components/Header"
 import { Product, ProductUnit, getUnitEffectivePrice, isUnitOnSale, getProductPriceRange, getProductDisplayPrice, hasAnySale, getSaleInfo } from '@/lib/types/product'
 
@@ -22,6 +23,7 @@ export default function ProductClient({ product }: Props) {
   const [displayImages, setDisplayImages] = useState<string[]>([])
 
   const { addToCart } = useCart()
+  const { showAlert } = usePopup()
 
   // Helper function to get display images
   const getDisplayImages = (product: Product, selectedUnit: ProductUnit | null): string[] => {
@@ -117,13 +119,13 @@ export default function ProductClient({ product }: Props) {
     // For products with units, require unit selection
     if (product.units && product.units.length > 0) {
       if (!selectedUnit) {
-        showNotification('Please select size and color options.', 'error');
+        showAlert('Please select size and color options.', 'warning');
         return;
       }
 
       // Check stock before adding
       if (quantity > availableStock) {
-        showNotification(`Cannot add more than ${availableStock} units of ${product.name}.`, 'error');
+        showAlert(`Cannot add more than ${availableStock} units of ${product.name}.`, 'error');
         return;
       }
 

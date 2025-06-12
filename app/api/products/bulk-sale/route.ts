@@ -1,21 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { isAdmin } from '@/lib/auth/adminCheck'
 import connectToDatabase from '@/lib/mongodb'
 import Product from '@/lib/models/Product'
-import { currentUser } from '@clerk/nextjs/server'
 
 export async function POST(req: NextRequest) {
     try {
-        const { userId } = await auth()
-        if (!userId) {
+        // Use the same admin check pattern as other routes
+        const adminAccess = await isAdmin()
+        if (!adminAccess) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-        }
-
-        // Check if user is admin (you may want to add proper role checking)
-        const user = await currentUser()
-        const userRole = user?.privateMetadata?.role as string
-        if (userRole !== 'admin') {
-            return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
         }
 
         await connectToDatabase()
@@ -26,15 +19,21 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Product IDs are required' }, { status: 400 })
         }
 
-        const updateData: any = {}
+        if (!saleConfig || !saleConfig.action) {
+            return NextResponse.json({ error: 'Sale configuration is required' }, { status: 400 })
+        }
+
+        let updateData: any = {}
 
         if (saleConfig.action === 'setSale') {
+            if (!saleConfig.type || typeof saleConfig.value !== 'number') {
+                return NextResponse.json({ error: 'Valid sale type and value are required' }, { status: 400 })
+            }
             updateData.saleConfig = {
                 isOnSale: true,
                 saleType: saleConfig.type,
                 saleValue: saleConfig.value,
             }
-            // Remove any existing salePrice to let the frontend calculate it
             updateData.$unset = { salePrice: "" }
         } else if (saleConfig.action === 'removeSale') {
             updateData.saleConfig = {
@@ -45,10 +44,14 @@ export async function POST(req: NextRequest) {
             updateData.$unset = { salePrice: "" }
         }
 
+        console.log('Bulk sale update data:', { productIds, updateData })
+
         const result = await Product.updateMany(
             { _id: { $in: productIds } },
             updateData
         )
+
+        console.log('Bulk sale update result:', result)
 
         return NextResponse.json({
             message: 'Bulk sale update successful',
@@ -57,7 +60,7 @@ export async function POST(req: NextRequest) {
     } catch (error: any) {
         console.error('Bulk sale update error:', error)
         return NextResponse.json(
-            { error: 'Internal server error' },
+            { error: 'Internal server error', details: error.message },
             { status: 500 }
         )
     }

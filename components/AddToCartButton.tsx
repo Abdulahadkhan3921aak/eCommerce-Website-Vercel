@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useCart } from '@/lib/contexts/CartContext'
 import { useAuth } from '@clerk/nextjs'
 import { Product } from '@/models/Product'
+import { usePopup } from '@/lib/contexts/PopupContext'
 
 interface AddToCartButtonProps {
   product: Product
@@ -31,10 +32,11 @@ export default function AddToCartButton({
   const [isAdding, setIsAdding] = useState(false)
   const { addToCart } = useCart()
   const { isSignedIn } = useAuth()
+  const { showAlert } = usePopup()
 
   const handleAddToCart = async () => {
     if (!isSignedIn) {
-      alert('Please sign in to add items to cart')
+      showAlert('Please sign in to add items to cart', 'warning')
       return
     }
 
@@ -54,8 +56,9 @@ export default function AddToCartButton({
       return
     }
 
-    if (typeof product.price !== 'number' || product.price < 0) {
-      console.error('AddToCartButton: Invalid product price', product.price)
+    if (typeof product.price !== 'number' || product.price <= 0) {
+      console.error('AddToCartButton: Invalid product price', product.price, product)
+      showAlert('This product has an invalid price. Please contact support.', 'error')
       return
     }
 
@@ -73,23 +76,31 @@ export default function AddToCartButton({
           return
         }
 
+        if (typeof selectedUnit.price !== 'number' || selectedUnit.price <= 0) {
+          console.error('AddToCartButton: Invalid unit price', selectedUnit.price, selectedUnit)
+          showAlert('This product variant has an invalid price. Please contact support.', 'error')
+          return
+        }
+
         // The cart context will handle the effective price calculation
         // Just pass the product and unit info
         addToCart(product, quantity, selectedUnit.size, selectedUnit.color, selectedUnit.unitId)
       } else if (product.units && Array.isArray(product.units) && product.units.length > 0) {
-        // Find the first available unit
+        // Find the first available unit with valid price
         const availableUnit = product.units.find(unit =>
           unit &&
           typeof unit.stock === 'number' &&
           unit.stock > 0 &&
-          unit.unitId
+          unit.unitId &&
+          typeof unit.price === 'number' &&
+          unit.price > 0
         )
 
         if (availableUnit) {
           addToCart(product, quantity, availableUnit.size, availableUnit.color, availableUnit.unitId)
         } else {
-          console.warn('AddToCartButton: No available units found')
-          alert('Product is out of stock')
+          console.warn('AddToCartButton: No available units with valid price found')
+          showAlert('Product is out of stock or has invalid pricing', 'warning')
         }
       } else {
         // Legacy product without units - use consistent ID format
@@ -100,6 +111,7 @@ export default function AddToCartButton({
       console.error('Product data:', product)
       console.error('Selected unit:', selectedUnit)
       console.error('Quantity:', quantity)
+      showAlert('Failed to add item to cart. Please try again.', 'error')
     } finally {
       setIsAdding(false)
     }

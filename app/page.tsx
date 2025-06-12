@@ -34,7 +34,6 @@ async function getFeaturedProducts() {
     }
 
     const data = await res.json();
-    console.log('Featured products API response:', data);
 
     // Handle the response structure correctly
     if (data && data.products && Array.isArray(data.products)) {
@@ -53,7 +52,6 @@ async function getFeaturedProducts() {
 
 export default async function Home() {
   const featuredProducts = await getFeaturedProducts();
-  console.log('Featured products in component:', featuredProducts?.length || 0);
 
   return (
     <div className="min-h-screen bg-white">
@@ -122,14 +120,12 @@ export default async function Home() {
 
                   // Better image handling for home page
                   const getProductImage = () => {
-                    console.log('Getting image for product:', product.name, 'Product images:', product.images, 'Units:', product.units?.length);
 
                     // First try product images
                     if (product.images && Array.isArray(product.images) && product.images.length > 0) {
                       const validImage = product.images.find(img => img && typeof img === 'string' && img.trim().length > 0);
                       if (validImage) {
                         const cleanUrl = validImage.trim();
-                        console.log('Found product image:', cleanUrl);
                         if (cleanUrl.startsWith('http') || cleanUrl.startsWith('/')) {
                           return cleanUrl;
                         }
@@ -144,7 +140,6 @@ export default async function Home() {
                           const validImage = unit.images.find(img => img && typeof img === 'string' && img.trim().length > 0);
                           if (validImage) {
                             const cleanUrl = validImage.trim();
-                            console.log('Found unit image:', cleanUrl);
                             if (cleanUrl.startsWith('http') || cleanUrl.startsWith('/') || cleanUrl.startsWith('data:')) {
                               return cleanUrl;
                             }

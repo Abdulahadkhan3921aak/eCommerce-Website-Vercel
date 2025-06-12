@@ -1,191 +1,190 @@
-import mongoose, { Document, Schema, Model } from 'mongoose'
-
-interface ShippoShipmentDetails {
-  rateId?: string; // Shippo rate object_id
-  carrier?: string; // e.g., "USPS", "FedEx"
-  serviceLevelToken?: string; // e.g., "usps_priority"
-  serviceLevelName?: string; // e.g., "USPS Priority Mail"
-  cost?: number; // The actual cost of the shipping label
-  estimatedDeliveryDays?: number;
-  trackingNumber?: string;
-  labelUrl?: string;
-  transactionId?: string; // Shippo transaction object_id
-}
+import mongoose, { Schema, Document } from 'mongoose'
 
 export interface IOrder extends Document {
-  userId: string;
-  orderNumber?: string;
+  orderNumber: string
+  userId: string
   items: Array<{
-    productId: mongoose.Schema.Types.ObjectId;
-    unitId: string;
-    name?: string;
-    price?: number;
-    quantity?: number;
-    size?: string;
-    color?: string;
-    image?: string;
-  }>;
-  subtotal: number;
-  shippingCost?: number;
-  tax?: number;
-  total: number;
-  status?: 'pending_approval' | 'approved' | 'rejected' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'pending_payment_adjustment';
-  paymentStatus?: 'pending_approval' | 'approved' | 'captured' | 'paid' | 'failed' | 'refunded' | 'cancelled' | 'pending_adjustment';
+    productId: string
+    unitId?: string
+    name: string
+    price: number
+    quantity: number
+    size?: string
+    color?: string
+    image?: string
+  }>
+  subtotal: number
+  shippingCost: number
+  tax: number
+  total: number
+  status: string
+  paymentStatus: string
   shippingAddress: {
-    name: string;
-    line1: string;
-    line2?: string;
-    city: string;
-    state: string;
-    postal_code: string;
-    country: string; // Should default to 'US' or be validated
-    phone?: string;
-    email?: string;
-    residential?: boolean;
-  };
-  billingAddress: {
-    name: string;
-    line1: string;
-    line2?: string;
-    city: string;
-    state: string;
-    postal_code: string;
-    country: string;
-    phone?: string;
-    email?: string;
-  };
-  shippingMethod: string;
-  customerEmail?: string;
-  customerPhone?: string;
-  stripeSessionId?: string;
-  stripePaymentIntentId?: string;
-  paymentMethod?: string; // e.g., 'stripe_card', 'stripe_apple_pay', 'stripe_google_pay'
+    name: string
+    line1: string
+    line2?: string
+    city: string
+    state: string
+    postal_code: string
+    country: string
+    phone?: string
+    email?: string
+    residential?: boolean
+  }
+  billingAddress?: {
+    name?: string
+    line1?: string
+    line2?: string
+    city?: string
+    state?: string
+    postal_code?: string
+    country?: string
+    phone?: string
+    email?: string
+  }
+  customerEmail: string
+  customerPhone?: string
+  stripeSessionId?: string
+  stripePaymentIntentId?: string
+  shippingMethod?: string
+  trackingNumber?: string
+  shippoShipment?: {
+    rateId?: string
+    carrier?: string
+    serviceLevelToken?: string
+    serviceLevelName?: string
+    cost?: number
+    estimatedDeliveryDays?: number
+    shipmentId?: string
+    transactionId?: string
+    trackingNumber?: string
+    labelUrl?: string
+  }
   adminApproval?: {
-    isApproved: boolean;
-    approvedBy?: string; // Clerk User ID
-    approvedAt?: Date;
-    rejectedBy?: string; // Clerk User ID
-    rejectedAt?: Date;
-    rejectionReason?: string;
-    adminNotes?: string; // Added admin notes
-  };
+    isApproved?: boolean
+    approvedBy?: string
+    approvedAt?: Date
+    rejectedBy?: string
+    rejectedAt?: Date
+    rejectionReason?: string
+    adminNotes?: string
+  }
   emailHistory: Array<{
-    sentAt: Date;
-    sentBy: string; // User ID or 'system'
-    type: 'confirmation' | 'approval' | 'rejection' | 'shipping_update' | 'custom';
-    subject: string;
-    contentPreview?: string; // Optional: a snippet or summary
-    content: string; // Can be HTML or plain text
-  }>;
-  shippoShipment?: ShippoShipmentDetails;
-  shippingWeight?: number; // in a consistent unit, e.g., kg or lbs
-  shippingDimensions?: { // in a consistent unit, e.g., cm or inches
-    length: number;
-    width: number;
-    height: number;
-  };
-  isPriceAdjusted?: boolean; // True if admin updated shipping causing price change
-  originalOrderId?: string; // Link to original order if this is an adjusted version
+    sentBy: string
+    type: string
+    subject: string
+    content: string
+    sentAt?: Date
+  }>
+  shippingWeight?: number
+  shippingDimensions?: {
+    length: number
+    width: number
+    height: number
+    unit?: 'in' | 'cm' // Add unit tracking
+  }
+  shippingWeightUnit?: 'lb' | 'kg' // Add weight unit tracking
+  isPriceAdjusted?: boolean
+  originalOrderId?: string
 }
 
-const OrderSchema: Schema<IOrder> = new Schema({
+const OrderSchema = new Schema<IOrder>({
+  orderNumber: {
+    type: String,
+    required: true,
+    unique: true // Remove the separate index: true to avoid duplicate
+  },
   userId: {
     type: String,
     required: true,
-  },
-  orderNumber: {
-    type: String,
-    unique: true,
+    index: true
   },
   items: [{
     productId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Product',
-      required: true,
-    },
-    unitId: { // Track specific unit for inventory deduction
       type: String,
-      required: true,
+      required: true
     },
-    name: String,
-    price: Number,
-    quantity: Number,
+    unitId: String,
+    name: {
+      type: String,
+      required: true
+    },
+    price: {
+      type: Number,
+      required: true,
+      min: 0
+    },
+    quantity: {
+      type: Number,
+      required: true,
+      min: 1
+    },
     size: String,
     color: String,
-    image: String,
+    image: String
   }],
   subtotal: {
     type: Number,
     required: true,
+    min: 0
   },
   shippingCost: {
     type: Number,
-    default: 0,
+    required: true,
+    min: 0
   },
   tax: {
     type: Number,
-    default: 0,
+    required: true,
+    min: 0
   },
   total: {
     type: Number,
     required: true,
+    min: 0
   },
   status: {
     type: String,
-    enum: ['pending_approval', 'approved', 'rejected', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'pending_payment_adjustment'],
-    default: 'pending_approval',
+    enum: ['pending_approval', 'approved', 'rejected', 'processing', 'shipped', 'delivered', 'cancelled', 'pending_payment_adjustment'],
+    default: 'pending_approval'
   },
   paymentStatus: {
     type: String,
-    enum: ['pending_approval', 'approved', 'captured', 'paid', 'failed', 'refunded', 'cancelled', 'pending_adjustment'],
-    default: 'pending_approval',
+    enum: ['pending_approval', 'captured', 'failed', 'cancelled', 'pending_adjustment'],
+    default: 'pending_approval'
   },
   shippingAddress: {
     name: { type: String, required: true },
     line1: { type: String, required: true },
-    line2: { type: String },
+    line2: String,
     city: { type: String, required: true },
     state: { type: String, required: true },
     postal_code: { type: String, required: true },
-    country: { type: String, required: true, default: 'US' }, // Default to US
-    phone: { type: String },
-    email: { type: String },
-    residential: { type: Boolean },
+    country: { type: String, required: true },
+    phone: String,
+    email: String,
+    residential: Boolean
   },
   billingAddress: {
-    name: { type: String },
-    line1: { type: String },
-    line2: { type: String },
-    city: { type: String },
-    state: { type: String },
-    postal_code: { type: String },
-    country: { type: String },
-    phone: { type: String },
-    email: { type: String },
+    name: String,
+    line1: String,
+    line2: String,
+    city: String,
+    state: String,
+    postal_code: String,
+    country: String,
+    phone: String,
+    email: String
   },
-  shippingMethod: { type: String, default: 'standard' },
-  customerEmail: { type: String },
-  customerPhone: { type: String },
-  stripeSessionId: { type: String },
-  stripePaymentIntentId: { type: String },
-  paymentMethod: { type: String },
-  adminApproval: {
-    isApproved: { type: Boolean, default: false },
-    approvedBy: { type: String },
-    approvedAt: { type: Date },
-    rejectedBy: { type: String },
-    rejectedAt: { type: Date },
-    rejectionReason: { type: String },
-    adminNotes: { type: String }, // Added admin notes
+  customerEmail: {
+    type: String,
+    required: true
   },
-  emailHistory: [{
-    sentAt: { type: Date, default: Date.now },
-    sentBy: { type: String, required: true },
-    type: { type: String, enum: ['confirmation', 'approval', 'rejection', 'shipping_update', 'custom'], required: true },
-    subject: { type: String, required: true },
-    contentPreview: { type: String },
-    content: { type: String, required: true },
-  }],
+  customerPhone: String,
+  stripeSessionId: String,
+  stripePaymentIntentId: String,
+  shippingMethod: String,
+  trackingNumber: String,
   shippoShipment: {
     rateId: String,
     carrier: String,
@@ -193,29 +192,68 @@ const OrderSchema: Schema<IOrder> = new Schema({
     serviceLevelName: String,
     cost: Number,
     estimatedDeliveryDays: Number,
-    trackingNumber: String,
-    labelUrl: String,
+    shipmentId: String,
     transactionId: String,
+    trackingNumber: String,
+    labelUrl: String
   },
-  shippingWeight: { type: Number },
+  adminApproval: {
+    isApproved: Boolean,
+    approvedBy: String,
+    approvedAt: Date,
+    rejectedBy: String,
+    rejectedAt: Date,
+    rejectionReason: String,
+    adminNotes: String
+  },
+  emailHistory: [{
+    sentBy: { type: String, required: true },
+    type: { type: String, required: true },
+    subject: { type: String, required: true },
+    content: { type: String, required: true },
+    sentAt: { type: Date, default: Date.now }
+  }],
+  shippingWeight: Number,
   shippingDimensions: {
-    length: { type: Number },
-    width: { type: Number },
-    height: { type: Number },
+    length: Number,
+    width: Number,
+    height: Number,
+    unit: {
+      type: String,
+      enum: ['in', 'cm'],
+      default: 'in'
+    }
   },
-  isPriceAdjusted: { type: Boolean, default: false },
-  originalOrderId: { type: String, ref: 'Order' }, // Optional: Link to another Order
+  shippingWeightUnit: {
+    type: String,
+    enum: ['lb', 'kg'],
+    default: 'lb'
+  },
+  isPriceAdjusted: Boolean,
+  originalOrderId: String
 }, {
-  timestamps: true,
+  timestamps: true
 })
 
-// Generate order number before saving
+// Remove any duplicate index definitions
+// OrderSchema.index({ orderNumber: 1 }) // This should be removed if unique: true is set above
+
+// Pre-save hook to generate order number
 OrderSchema.pre('save', async function (next) {
-  if (!this.orderNumber) {
-    const count = await mongoose.model('Order').countDocuments()
-    this.orderNumber = `ORD-${Date.now()}-${String(count + 1).padStart(4, '0')}`
+  if (this.isNew && !this.orderNumber) {
+    try {
+      // Use this.constructor instead of mongoose.model('Order') to avoid circular reference
+      const count = await (this.constructor as any).countDocuments()
+      this.orderNumber = `ORD-${Date.now()}-${String(count + 1).padStart(4, '0')}`
+    } catch (error) {
+      console.error('Error generating order number:', error)
+      // Fallback order number generation
+      this.orderNumber = `ORD-${Date.now()}-${String(Math.floor(Math.random() * 9999) + 1).padStart(4, '0')}`
+    }
   }
   next()
 })
 
-export default (mongoose.models.Order as Model<IOrder>) || mongoose.model<IOrder>('Order', OrderSchema)
+const Order = mongoose.models.Order || mongoose.model<IOrder>('Order', OrderSchema)
+
+export default Order

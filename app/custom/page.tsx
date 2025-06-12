@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
-import Image from 'next/image'
+import { useState, useEffect } from 'react'
+import { useUser } from '@clerk/nextjs'
 import Header from '@/components/Header'
-import { useCart } from '@/lib/contexts/CartContext'
-import { Product } from '@/models/Product'
+import { showNotification } from '@/lib/notifications'
+import { showAlert } from '@/components/AlertProvider'
 
+// Update to match the Product model enum - only singular forms
 type JewelryCategory = 'ring' | 'necklace' | 'earring' | 'bracelet'
 
 interface SizeOption {
@@ -15,6 +16,18 @@ interface SizeOption {
   inches: string
   centimeters: string
   description?: string
+}
+
+interface ShippingAddress {
+  name: string
+  line1: string
+  line2?: string
+  city: string
+  state: string
+  postalCode: string
+  country: string
+  phone?: string
+  email?: string
 }
 
 const categorySizes: Record<JewelryCategory, SizeOption[]> = {
@@ -53,30 +66,27 @@ const categoryInfo = {
   ring: {
     title: 'Custom Ring',
     description: 'Create your perfect ring with personalized engravings and custom sizing',
-    basePrice: 49.99,
     image: '/images/custom-ring.jpg'
   },
   necklace: {
     title: 'Custom Necklace',
     description: 'Design a beautiful necklace with your choice of length and personalization',
-    basePrice: 59.99,
     image: '/images/custom-necklace.jpg'
   },
   earring: {
     title: 'Custom Earrings',
     description: 'Handcrafted earrings tailored to your style and preferences',
-    basePrice: 39.99,
     image: '/images/custom-earrings.jpg'
   },
   bracelet: {
     title: 'Custom Bracelet',
     description: 'Personalized bracelet with optional name engraving',
-    basePrice: 44.99,
     image: '/images/custom-bracelet.jpg'
   }
 }
 
 export default function CustomProductPage() {
+  const { user } = useUser()
   const [selectedCategory, setSelectedCategory] = useState<JewelryCategory | null>(null)
   const [selectedSizes, setSelectedSizes] = useState<string[]>([])
   const [allowMultipleSizes, setAllowMultipleSizes] = useState(false)
@@ -84,8 +94,22 @@ export default function CustomProductPage() {
   const [engraveEnabled, setEngraveEnabled] = useState(false)
   const [customText, setCustomText] = useState('')
   const [quantity, setQuantity] = useState(1)
-
-  const { addToCart } = useCart()
+  const [notes, setNotes] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showAddressForm, setShowAddressForm] = useState(false)
+  const [shippingAddress, setShippingAddress] = useState<ShippingAddress | null>(null)
+  const [addressForm, setAddressForm] = useState<ShippingAddress>({
+    name: '',
+    line1: '',
+    line2: '',
+    city: '',
+    state: '',
+    postalCode: '',
+    country: 'US',
+    phone: '',
+    email: ''
+  })
+  const [addressError, setAddressError] = useState('')
 
   const handleCategorySelect = (category: JewelryCategory) => {
     setSelectedCategory(category)
@@ -108,181 +132,390 @@ export default function CustomProductPage() {
     }
   }
 
-  const calculatePrice = () => {
-    if (!selectedCategory) return 0
-
-    let price = categoryInfo[selectedCategory].basePrice
-
-    // Add cost for multiple sizes
-    if (selectedSizes.length > 1) {
-      price += (selectedSizes.length - 1) * 10
-    }
-
-    // Add engraving cost
-    if (engraveEnabled && (engraveName || customText)) {
-      price += 15
-    }
-
-    return price * quantity
+  const handleAddressChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target
+    setAddressForm(prev => ({ ...prev, [name]: name === 'state' ? value.toUpperCase() : value }))
   }
 
-  const handleAddToCart = () => {
+  // US state name to abbreviation map (moved outside for global access)
+  const stateNameMap: { [key: string]: string } = {
+    'ALABAMA': 'AL', 'ALASKA': 'AK', 'ARIZONA': 'AZ', 'ARKANSAS': 'AR',
+    'CALIFORNIA': 'CA', 'COLORADO': 'CO', 'CONNECTICUT': 'CT', 'DELAWARE': 'DE',
+    'FLORIDA': 'FL', 'GEORGIA': 'GA', 'HAWAII': 'HI', 'IDAHO': 'ID',
+    'ILLINOIS': 'IL', 'INDIANA': 'IN', 'IOWA': 'IA', 'KANSAS': 'KS',
+    'KENTUCKY': 'KY', 'LOUISIANA': 'LA', 'MAINE': 'ME', 'MARYLAND': 'MD',
+    'MASSACHUSETTS': 'MA', 'MICHIGAN': 'MI', 'MINNESOTA': 'MN', 'MISSISSIPPI': 'MS',
+    'MISSOURI': 'MO', 'MONTANA': 'MT', 'NEBRASKA': 'NE', 'NEVADA': 'NV',
+    'NEW HAMPSHIRE': 'NH', 'NEW JERSEY': 'NJ', 'NEW MEXICO': 'NM', 'NEW YORK': 'NY',
+    'NORTH CAROLINA': 'NC', 'NORTH DAKOTA': 'ND', 'OHIO': 'OH', 'OKLAHOMA': 'OK',
+    'OREGON': 'OR', 'PENNSYLVANIA': 'PA', 'RHODE ISLAND': 'RI', 'SOUTH CAROLINA': 'SC',
+    'SOUTH DAKOTA': 'SD', 'TENNESSEE': 'TN', 'TEXAS': 'TX', 'UTAH': 'UT',
+    'VERMONT': 'VT', 'VIRGINIA': 'VA', 'WASHINGTON': 'WA', 'WEST VIRGINIA': 'WV',
+    'WISCONSIN': 'WI', 'WYOMING': 'WY', 'DISTRICT OF COLUMBIA': 'DC'
+  };
+
+  const handleAddressSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setAddressError('')
+
+    // Basic client-side validation for required fields
+    if (!addressForm.name?.trim() || !addressForm.line1?.trim() || !addressForm.city?.trim() ||
+      !addressForm.state?.trim() || !addressForm.postalCode?.trim() || !addressForm.country?.trim()) {
+
+      const missingFields = []
+      if (!addressForm.name?.trim()) missingFields.push('name')
+      if (!addressForm.line1?.trim()) missingFields.push('street address')
+      if (!addressForm.city?.trim()) missingFields.push('city')
+      if (!addressForm.state?.trim()) missingFields.push('state')
+      if (!addressForm.postalCode?.trim()) missingFields.push('ZIP code')
+      if (!addressForm.country?.trim()) missingFields.push('country')
+
+      setAddressError(`Please fill in all required fields: ${missingFields.join(', ')}.`)
+      return
+    }
+
+    // US-specific validation
+    if (addressForm.country === 'US') {
+      // Check for PO Box
+      if (/\bP\.?O\.?\s*BOX\b/i.test(addressForm.line1)) {
+        setAddressError('PO Boxes are not supported for US shipping. Please provide a street address.')
+        return
+      }
+
+      // Validate ZIP code format
+      if (!/^\d{5}(-\d{4})?$/.test(addressForm.postalCode)) {
+        setAddressError('Please enter a valid US ZIP code (e.g., 12345 or 12345-6789).')
+        return
+      }
+
+      // Enhanced state validation
+      const validStates = [
+        'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
+        'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
+        'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+        'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
+        'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC'
+      ]
+
+      const stateUpper = addressForm.state.toUpperCase().trim()
+      const isValidStateCode = validStates.includes(stateUpper)
+      const isValidStateName = stateNameMap[stateUpper]
+
+      if (!isValidStateCode && !isValidStateName) {
+        setAddressError('Please enter a valid US state (e.g., FL or Florida).')
+        return
+      }
+
+      // Convert full state name to abbreviation for consistency
+      if (isValidStateName && !isValidStateCode) {
+        setAddressForm(prev => ({
+          ...prev,
+          state: stateNameMap[stateUpper]
+        }))
+      }
+    }
+
+    try {
+      // Use the current form state (which might have been updated above)
+      const addressToValidate = {
+        ...addressForm,
+        state: addressForm.country === 'US' && stateNameMap[addressForm.state.toUpperCase().trim()]
+          ? stateNameMap[addressForm.state.toUpperCase().trim()]
+          : addressForm.state
+      }
+
+      const response = await fetch('/api/shipping/validate-address', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: addressToValidate })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok || !data.isValid) {
+        setAddressError(data.messages?.join('. ') || data.error || 'Invalid address. Please check and try again.')
+        return
+      }
+
+      const validatedAddress: ShippingAddress = {
+        name: data.correctedAddress?.name || addressToValidate.name,
+        line1: data.correctedAddress?.line1 || addressToValidate.line1,
+        line2: data.correctedAddress?.line2 || addressToValidate.line2,
+        city: data.correctedAddress?.city || addressToValidate.city,
+        state: data.correctedAddress?.state || addressToValidate.state,
+        postalCode: data.correctedAddress?.postalCode || addressToValidate.postalCode,
+        country: data.correctedAddress?.country || addressToValidate.country,
+        phone: data.correctedAddress?.phone || addressToValidate.phone,
+        email: data.correctedAddress?.email || addressToValidate.email,
+      }
+
+      setShippingAddress(validatedAddress)
+      setAddressForm(validatedAddress)
+      setShowAddressForm(false)
+    } catch (error) {
+      console.error('Address validation error:', error)
+      setAddressError('Address validation failed. Please try again.')
+    }
+  }
+
+  const handleSubmitOrder = async () => {
     if (!selectedCategory || selectedSizes.length === 0) {
-      alert('Please select a category and size')
+      showAlert('Please select a category and size', 'warning')
+      return
+    }
+
+    if (!shippingAddress) {
+      showAlert('Please add a valid shipping address', 'warning')
       return
     }
 
     if (selectedCategory === 'bracelet' && engraveEnabled && !engraveName) {
-      alert('Please enter a name for engraving')
+      showAlert('Please enter a name for engraving', 'warning')
       return
     }
 
-    const selectedSizeNames = selectedSizes.map(sizeId => {
-      const size = categorySizes[selectedCategory].find(s => s.id === sizeId)
-      return size?.displayName || sizeId
-    }).join(', ')
+    setIsSubmitting(true)
 
-    const customProduct: Product = {
-      _id: `custom-${selectedCategory}-${Date.now()}`,
-      name: `${categoryInfo[selectedCategory].title}${engraveEnabled ? ' (Engraved)' : ''}`,
-      description: `Custom ${categoryInfo[selectedCategory].title}`,
-      price: calculatePrice() / quantity, // Base price per unit
-      images: [categoryInfo[selectedCategory].image],
-      category: 'custom',
-      stock: 999, // Custom products have high stock
-      totalStock: 999,
-      featured: false,
-      rating: 5,
-      reviews: 0,
-      customization: {
-        category: selectedCategory,
+    try {
+      const selectedSizeNames = selectedSizes.map(sizeId => {
+        const size = categorySizes[selectedCategory].find(s => s.id === sizeId)
+        return size?.displayName || sizeId
+      }).join(', ')
+
+      const customOrderData = {
+        category: selectedCategory, // This will now match the enum values
+        title: categoryInfo[selectedCategory].title,
+        description: categoryInfo[selectedCategory].description,
         sizes: selectedSizeNames,
         engraving: engraveEnabled ? (engraveName || customText) : null,
-        quantity
-      },
-      // Add units structure for custom products
-      units: selectedSizes.map(sizeId => ({
-        unitId: `custom-unit-${sizeId}-${Date.now()}`,
-        size: categorySizes[selectedCategory].find(s => s.id === sizeId)?.displayName,
-        stock: 999,
-        price: calculatePrice() / quantity, // Price per unit
-        images: [categoryInfo[selectedCategory].image], // Use category image for custom units
-      }))
-    }
+        quantity,
+        notes,
+        shippingAddress,
+        customerEmail: user?.emailAddresses?.[0]?.emailAddress,
+        customerId: user?.id
+      }
 
-    // Pass the first unit ID if units exist
-    const firstUnitId = customProduct.units && customProduct.units.length > 0 ? customProduct.units[0].unitId : undefined;
-    addToCart(customProduct, quantity, undefined, undefined, firstUnitId)
-    alert('Custom jewelry added to cart!')
+      const response = await fetch('/api/orders/custom', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(customOrderData)
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to submit custom order')
+      }
+
+      // Show success message with order number
+      showAlert(`Custom order submitted successfully! Order Number: ${data.orderNumber}\n\nWe will contact you with pricing and details.`, 'success')
+
+      // Reset form
+      setSelectedCategory(null)
+      setSelectedSizes([])
+      setEngraveName('')
+      setEngraveEnabled(false)
+      setCustomText('')
+      setQuantity(1)
+      setNotes('')
+
+    } catch (error) {
+      console.error('Error submitting custom order:', error)
+      showAlert(`Failed to submit order: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
-  const getRingSizeVisual = (size: SizeOption, isSelected: boolean) => (
-    <div
-      key={size.id}
-      className={`relative cursor-pointer transition-all duration-200 ${isSelected ? 'transform scale-110' : 'hover:scale-105'
-        }`}
-      onClick={() => handleSizeSelect(size.id)}
-    >
+  const getRingSizeSVG = (size: SizeOption, isSelected: boolean) => {
+    const sizeNum = parseInt(size.name)
+    const radius = 20 + (sizeNum - 4) * 3 // Scale ring size visually
+
+    return (
       <div
-        className={`w-16 h-16 rounded-full border-4 flex items-center justify-center transition-colors ${isSelected
-          ? 'border-purple-600 bg-purple-50'
-          : 'border-gray-300 hover:border-purple-400'
-          }`}
-        style={{
-          transform: `scale(${0.6 + (parseInt(size.name) - 4) * 0.1})`
-        }}
+        key={size.id}
+        className={`cursor-pointer transition-all duration-200 ${isSelected ? 'transform scale-110' : 'hover:scale-105'}`}
+        onClick={() => handleSizeSelect(size.id)}
       >
-        <span className={`text-xs font-bold ${isSelected ? 'text-purple-600' : 'text-gray-600'}`}>
-          {size.name}
-        </span>
+        <div className="flex flex-col items-center">
+          <svg width="80" height="80" viewBox="0 0 80 80" className="mb-2">
+            <circle
+              cx="40"
+              cy="40"
+              r={radius}
+              fill="none"
+              stroke={isSelected ? '#7C3AED' : '#6B7280'}
+              strokeWidth={isSelected ? '3' : '2'}
+              className="transition-colors"
+            />
+            <text
+              x="40"
+              y="45"
+              textAnchor="middle"
+              className={`text-sm font-bold ${isSelected ? 'fill-purple-600' : 'fill-gray-600'}`}
+            >
+              {size.name}
+            </text>
+          </svg>
+          <div className="text-center">
+            <div className="text-xs text-gray-600">{size.inches}</div>
+            <div className="text-xs text-gray-500">{size.centimeters}</div>
+          </div>
+        </div>
       </div>
-      <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 text-center">
-        <div className="text-xs text-gray-600">{size.inches}</div>
-        <div className="text-xs text-gray-500">{size.centimeters}</div>
-      </div>
-    </div>
-  )
+    )
+  }
 
-  const getNecklaceSizeVisual = (size: SizeOption, isSelected: boolean) => (
-    <div
-      key={size.id}
-      className={`cursor-pointer p-4 border-2 rounded-lg transition-all ${isSelected
-        ? 'border-purple-600 bg-purple-50'
-        : 'border-gray-200 hover:border-purple-300'
-        }`}
-      onClick={() => handleSizeSelect(size.id)}
-    >
-      <div className="flex items-center justify-between mb-2">
-        <span className={`font-medium ${isSelected ? 'text-purple-600' : 'text-gray-900'}`}>
-          {size.displayName}
-        </span>
-        <span className="text-sm text-gray-500">{size.description}</span>
-      </div>
-      <div className="flex space-x-4 text-sm text-gray-600">
-        <span>{size.inches}</span>
-        <span>{size.centimeters}</span>
-      </div>
-      <div className="mt-2">
-        <div
-          className={`h-2 rounded-full ${isSelected ? 'bg-purple-200' : 'bg-gray-200'}`}
-          style={{ width: `${(parseInt(size.name) / 24) * 100}%` }}
-        />
-      </div>
-    </div>
-  )
+  const getNecklaceSizeSVG = (size: SizeOption, isSelected: boolean) => {
+    const length = parseInt(size.name)
+    const pathLength = 50 + (length - 14) * 5 // Scale necklace length
 
-  const getEarringSizeVisual = (size: SizeOption, isSelected: boolean) => (
-    <div
-      key={size.id}
-      className={`cursor-pointer p-6 border-2 rounded-lg transition-all text-center ${isSelected
-        ? 'border-purple-600 bg-purple-50'
-        : 'border-gray-200 hover:border-purple-300'
-        }`}
-      onClick={() => handleSizeSelect(size.id)}
-    >
+    return (
       <div
-        className={`w-8 h-8 mx-auto rounded-full border-2 mb-3 ${isSelected ? 'border-purple-600 bg-purple-200' : 'border-gray-400 bg-gray-200'
-          }`}
-        style={{
-          transform: size.name === 'small' ? 'scale(0.7)' : size.name === 'large' ? 'scale(1.3)' : 'scale(1)'
-        }}
-      />
-      <div className={`font-medium mb-1 ${isSelected ? 'text-purple-600' : 'text-gray-900'}`}>
-        {size.displayName}
-      </div>
-      <div className="text-sm text-gray-600">{size.inches} / {size.centimeters}</div>
-      <div className="text-xs text-gray-500 mt-1">{size.description}</div>
-    </div>
-  )
+        key={size.id}
+        className={`cursor-pointer p-4 border-2 rounded-lg transition-all ${isSelected ? 'border-purple-600 bg-purple-50' : 'border-gray-200 hover:border-purple-300'}`}
+        onClick={() => handleSizeSelect(size.id)}
+      >
+        <div className="flex items-center justify-between mb-2">
+          <span className={`font-medium ${isSelected ? 'text-purple-600' : 'text-gray-900'}`}>
+            {size.displayName}
+          </span>
+          <span className="text-sm text-gray-500">{size.description}</span>
+        </div>
 
-  const getBraceletSizeVisual = (size: SizeOption, isSelected: boolean) => (
-    <div
-      key={size.id}
-      className={`cursor-pointer p-4 border-2 rounded-lg transition-all ${isSelected
-        ? 'border-purple-600 bg-purple-50'
-        : 'border-gray-200 hover:border-purple-300'
-        }`}
-      onClick={() => handleSizeSelect(size.id)}
-    >
-      <div className="flex items-center justify-between mb-3">
-        <span className={`font-bold text-lg ${isSelected ? 'text-purple-600' : 'text-gray-900'}`}>
-          {size.displayName}
-        </span>
-        <span className="text-sm text-gray-500">{size.description}</span>
+        <div className="flex items-center mb-2">
+          <svg width="60" height="40" viewBox="0 0 60 40" className="mr-4">
+            <path
+              d={`M 5 20 Q 30 ${20 - pathLength / 10} 55 20`}
+              fill="none"
+              stroke={isSelected ? '#7C3AED' : '#6B7280'}
+              strokeWidth="2"
+              className="transition-colors"
+            />
+            <circle cx="5" cy="20" r="2" fill={isSelected ? '#7C3AED' : '#6B7280'} />
+            <circle cx="55" cy="20" r="2" fill={isSelected ? '#7C3AED' : '#6B7280'} />
+          </svg>
+
+          <div className="text-sm text-gray-600">
+            <div>{size.inches} / {size.centimeters}</div>
+          </div>
+        </div>
       </div>
-      <div className="flex space-x-4 text-sm text-gray-600 mb-2">
-        <span>{size.inches}</span>
-        <span>{size.centimeters}</span>
-      </div>
+    )
+  }
+
+  const getEarringSizeSVG = (size: SizeOption, isSelected: boolean) => {
+    const sizeMultiplier = size.name === 'small' ? 0.7 : size.name === 'large' ? 1.3 : 1
+
+    return (
       <div
-        className={`h-3 rounded-full ${isSelected ? 'bg-purple-200' : 'bg-gray-200'}`}
-        style={{
-          width: `${60 + (size.name === 'xs' ? 0 : size.name === 's' ? 10 : size.name === 'm' ? 20 : size.name === 'l' ? 30 : 40)}%`,
-          maxWidth: '100%'
-        }}
-      />
-    </div>
-  )
+        key={size.id}
+        className={`cursor-pointer p-6 border-2 rounded-lg transition-all text-center ${isSelected ? 'border-purple-600 bg-purple-50' : 'border-gray-200 hover:border-purple-300'}`}
+        onClick={() => handleSizeSelect(size.id)}
+      >
+        <svg width="60" height="60" viewBox="0 0 60 60" className="mx-auto mb-3">
+          <g transform={`scale(${sizeMultiplier}) translate(${30 * (1 - sizeMultiplier)}, ${30 * (1 - sizeMultiplier)})`}>
+            <circle
+              cx="30"
+              cy="30"
+              r="15"
+              fill={isSelected ? '#7C3AED' : '#6B7280'}
+              className="transition-colors"
+            />
+            <circle cx="30" cy="15" r="3" fill="white" />
+          </g>
+        </svg>
+
+        <div className={`font-medium mb-1 ${isSelected ? 'text-purple-600' : 'text-gray-900'}`}>
+          {size.displayName}
+        </div>
+        <div className="text-sm text-gray-600">{size.inches} / {size.centimeters}</div>
+        <div className="text-xs text-gray-500 mt-1">{size.description}</div>
+      </div>
+    )
+  }
+
+  const getBraceletSizeSVG = (size: SizeOption, isSelected: boolean) => {
+    const sizeMap = { xs: 0.6, s: 0.7, m: 0.8, l: 0.9, xl: 1.0 }
+    const scale = sizeMap[size.name as keyof typeof sizeMap] || 0.8
+
+    return (
+      <div
+        key={size.id}
+        className={`cursor-pointer p-4 border-2 rounded-lg transition-all ${isSelected ? 'border-purple-600 bg-purple-50' : 'border-gray-200 hover:border-purple-300'}`}
+        onClick={() => handleSizeSelect(size.id)}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <span className={`font-bold text-lg ${isSelected ? 'text-purple-600' : 'text-gray-900'}`}>
+            {size.displayName}
+          </span>
+          <span className="text-sm text-gray-500">{size.description}</span>
+        </div>
+
+        <div className="flex items-center mb-2">
+          <svg width="80" height="40" viewBox="0 0 80 40" className="mr-4">
+            <ellipse
+              cx="40"
+              cy="20"
+              rx={30 * scale}
+              ry="15"
+              fill="none"
+              stroke={isSelected ? '#7C3AED' : '#6B7280'}
+              strokeWidth="3"
+              className="transition-colors"
+            />
+          </svg>
+
+          <div className="text-sm text-gray-600">
+            <div>{size.inches} / {size.centimeters}</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Load saved address from user metadata
+  useEffect(() => {
+    const loadSavedAddress = async () => {
+      if (!user) {
+        return
+      }
+
+
+      try {
+        const response = await fetch('/api/user/get-shipping-address')
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch shipping address')
+        }
+
+        const data = await response.json()
+
+        if (data.success && data.address) {
+          if (data.hasAddress) {
+            setShippingAddress(data.address)
+            setAddressForm(data.address)
+          } else {
+            setAddressForm(prev => ({
+              ...prev,
+              ...data.address
+            }))
+          }
+        }
+      } catch (error) {
+
+        // Fallback to basic user data
+        setAddressForm(prev => ({
+          ...prev,
+          name: user.fullName || '',
+          phone: user.phoneNumbers?.[0]?.phoneNumber || '',
+          email: user.emailAddresses?.[0]?.emailAddress || ''
+        }))
+      }
+    }
+
+    loadSavedAddress()
+  }, [user])
 
   return (
     <div className="min-h-screen bg-white">
@@ -291,7 +524,7 @@ export default function CustomProductPage() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold text-gray-900 mb-4">Create Custom Jewelry</h1>
-          <p className="text-xl text-gray-600">Design your perfect piece with personalized options</p>
+          <p className="text-xl text-gray-600">Design your perfect piece - We'll provide pricing after review</p>
         </div>
 
         {/* Category Selection */}
@@ -312,7 +545,7 @@ export default function CustomProductPage() {
                   </div>
                   <h3 className="text-xl font-semibold text-gray-900 mb-2">{info.title}</h3>
                   <p className="text-gray-600 text-sm mb-4">{info.description}</p>
-                  <div className="text-lg font-bold text-purple-600">From ${info.basePrice}</div>
+                  <div className="text-lg font-bold text-purple-600">Custom Quote</div>
                 </div>
               ))}
             </div>
@@ -351,12 +584,12 @@ export default function CustomProductPage() {
                   className="h-4 w-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
                 />
                 <span className="text-gray-900 font-medium">
-                  Order multiple sizes (+$10 per additional size)
+                  Order multiple sizes (pricing will be adjusted accordingly)
                 </span>
               </label>
             </div>
 
-            {/* Size Selection */}
+            {/* Size Selection with SVGs */}
             <div>
               <h3 className="text-xl font-semibold text-gray-900 mb-6">
                 Select Size{allowMultipleSizes ? 's' : ''}
@@ -365,9 +598,7 @@ export default function CustomProductPage() {
               {selectedCategory === 'ring' && (
                 <div className="space-y-6">
                   <div className="flex flex-wrap justify-center gap-8 py-8">
-                    {categorySizes.ring.map(size =>
-                      getRingSizeVisual(size, selectedSizes.includes(size.id))
-                    )}
+                    {categorySizes.ring.map(size => getRingSizeSVG(size, selectedSizes.includes(size.id)))}
                   </div>
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <p className="text-blue-800 text-sm">
@@ -382,9 +613,7 @@ export default function CustomProductPage() {
               {selectedCategory === 'necklace' && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {categorySizes.necklace.map(size =>
-                      getNecklaceSizeVisual(size, selectedSizes.includes(size.id))
-                    )}
+                    {categorySizes.necklace.map(size => getNecklaceSizeSVG(size, selectedSizes.includes(size.id)))}
                   </div>
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <p className="text-blue-800 text-sm">
@@ -399,9 +628,7 @@ export default function CustomProductPage() {
               {selectedCategory === 'earring' && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {categorySizes.earring.map(size =>
-                      getEarringSizeVisual(size, selectedSizes.includes(size.id))
-                    )}
+                    {categorySizes.earring.map(size => getEarringSizeSVG(size, selectedSizes.includes(size.id)))}
                   </div>
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <p className="text-blue-800 text-sm">
@@ -416,9 +643,7 @@ export default function CustomProductPage() {
               {selectedCategory === 'bracelet' && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {categorySizes.bracelet.map(size =>
-                      getBraceletSizeVisual(size, selectedSizes.includes(size.id))
-                    )}
+                    {categorySizes.bracelet.map(size => getBraceletSizeSVG(size, selectedSizes.includes(size.id)))}
                   </div>
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <p className="text-blue-800 text-sm">
@@ -506,48 +731,392 @@ export default function CustomProductPage() {
               </div>
             </div>
 
-            {/* Price Summary */}
-            <div className="bg-purple-50 border border-purple-200 rounded-lg p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Price Summary</h3>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span>Base Price ({categoryInfo[selectedCategory].title})</span>
-                  <span>${categoryInfo[selectedCategory].basePrice.toFixed(2)}</span>
+            {/* Additional Notes */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Additional Notes or Specifications
+              </label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Any special requests, material preferences, or additional details..."
+                rows={4}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                maxLength={500}
+              />
+              <p className="text-xs text-gray-500 mt-1">{notes.length}/500 characters</p>
+            </div>
+
+            {/* Shipping Address Section */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Shipping Address</h3>
+
+              {shippingAddress && !showAddressForm ? (
+                <div className="bg-white border border-gray-200 rounded-md p-4">
+                  <p className="font-medium text-gray-900">{shippingAddress.name}</p>
+                  <p className="text-sm text-gray-600">{shippingAddress.line1}</p>
+                  {shippingAddress.line2 && <p className="text-sm text-gray-600">{shippingAddress.line2}</p>}
+                  <p className="text-sm text-gray-600">
+                    {shippingAddress.city}, {shippingAddress.state} {shippingAddress.postalCode}
+                  </p>
+                  <button
+                    onClick={() => setShowAddressForm(true)}
+                    className="mt-2 text-sm text-purple-600 hover:text-purple-800 font-medium"
+                  >
+                    Change Address
+                  </button>
                 </div>
-                {selectedSizes.length > 1 && (
+              ) : (
+                <button
+                  onClick={() => setShowAddressForm(true)}
+                  className="w-full py-3 px-4 border-2 border-dashed border-gray-300 rounded-md text-gray-600 hover:border-purple-400 hover:text-purple-600 transition-colors"
+                >
+                  + Add Shipping Address
+                </button>
+              )}
+
+              {/* Address Form Modal */}
+              {showAddressForm && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                      Shipping Address
+                    </h3>
+
+                    <form onSubmit={handleAddressSubmit} className="space-y-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Name *
+                        </label>
+                        <input
+                          type="text"
+                          name="name"
+                          value={addressForm.name}
+                          onChange={handleAddressChange}
+                          placeholder="Full name"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Address Line 1 *
+                        </label>
+                        <input
+                          type="text"
+                          name="line1"
+                          value={addressForm.line1}
+                          onChange={handleAddressChange}
+                          placeholder="Street address, P.O. box, etc."
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Address Line 2
+                        </label>
+                        <input
+                          type="text"
+                          name="line2"
+                          value={addressForm.line2}
+                          onChange={handleAddressChange}
+                          placeholder="Apartment, suite, unit, building, floor, etc."
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            City *
+                          </label>
+                          <input
+                            type="text"
+                            name="city"
+                            value={addressForm.city}
+                            onChange={handleAddressChange}
+                            placeholder="City"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            State *
+                          </label>
+                          <input
+                            type="text"
+                            name="state"
+                            value={addressForm.state}
+                            onChange={handleAddressChange}
+                            placeholder="State"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            ZIP / Postal Code *
+                          </label>
+                          <input
+                            type="text"
+                            name="postalCode"
+                            value={addressForm.postalCode}
+                            onChange={handleAddressChange}
+                            placeholder="ZIP or Postal Code"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Country
+                          </label>
+                          <select
+                            name="country"
+                            value={addressForm.country}
+                            onChange={handleAddressChange}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                          >
+                            <option value="US">United States</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Phone Number
+                        </label>
+                        <input
+                          type="tel"
+                          name="phone"
+                          value={addressForm.phone}
+                          onChange={handleAddressChange}
+                          placeholder="(555) 123-4567"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Email Address
+                        </label>
+                        <input
+                          type="email"
+                          name="email"
+                          value={addressForm.email}
+                          onChange={handleAddressChange}
+                          placeholder="your.email@example.com"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        />
+                      </div>
+
+                      {addressError && (
+                        <div className="bg-red-50 border border-red-200 rounded-md p-3">
+                          <p className="text-red-800 text-sm">{addressError}</p>
+                        </div>
+                      )}
+
+                      <div className="flex space-x-3 pt-4">
+                        <button
+                          type="submit"
+                          className="flex-1 bg-purple-600 text-white py-2 px-4 rounded-md hover:bg-purple-700 transition-colors"
+                        >
+                          Validate Address
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAddressForm(false)
+                            setAddressError('')
+                          }}
+                          className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Order Summary */}
+            <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Summary</h3>
+
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Item:</span>
+                  <span className="font-medium">{categoryInfo[selectedCategory].title}</span>
+                </div>
+
+                {selectedSizes.length > 0 && (
                   <div className="flex justify-between">
-                    <span>Additional Sizes ({selectedSizes.length - 1})</span>
-                    <span>+${((selectedSizes.length - 1) * 10).toFixed(2)}</span>
+                    <span className="text-gray-600">Size{selectedSizes.length > 1 ? 's' : ''}:</span>
+                    <span className="font-medium">
+                      {selectedSizes.map(sizeId => {
+                        const size = categorySizes[selectedCategory].find(s => s.id === sizeId)
+                        return size?.displayName
+                      }).join(', ')}
+                    </span>
                   </div>
                 )}
-                {engraveEnabled && (engraveName || customText) && (
+
+                {engraveEnabled && (
                   <div className="flex justify-between">
-                    <span>Engraving</span>
-                    <span>+$15.00</span>
+                    <span className="text-gray-600">Engraving:</span>
+                    <span className="font-medium">
+                      {selectedCategory === 'bracelet' ? engraveName : customText} (+$15)
+                    </span>
                   </div>
                 )}
-                {quantity > 1 && (
-                  <div className="flex justify-between">
-                    <span>Quantity ({quantity})</span>
-                    <span>×{quantity}</span>
+
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Quantity:</span>
+                  <span className="font-medium">{quantity}</span>
+                </div>
+
+                {notes && (
+                  <div className="pt-2 border-t border-gray-200">
+                    <span className="text-gray-600 block mb-1">Notes:</span>
+                    <span className="text-sm text-gray-800">{notes}</span>
                   </div>
                 )}
-                <div className="border-t pt-2 flex justify-between font-bold text-lg">
-                  <span>Total</span>
-                  <span>${calculatePrice().toFixed(2)}</span>
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-purple-200">
+                <div className="text-center">
+                  <p className="text-lg font-bold text-purple-600">Custom Quote Required</p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    We'll provide detailed pricing after reviewing your specifications
+                  </p>
                 </div>
               </div>
             </div>
 
-            {/* Add to Cart */}
+            {/* Submit Button */}
             <div className="text-center">
               <button
-                onClick={handleAddToCart}
-                disabled={selectedSizes.length === 0}
-                className="btn-primary text-lg px-8 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleSubmitOrder}
+                disabled={isSubmitting || selectedSizes.length === 0 || !shippingAddress}
+                className={`w-full max-w-md py-4 px-8 rounded-lg text-white font-semibold text-lg transition-all ${isSubmitting || selectedSizes.length === 0 || !shippingAddress
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 shadow-lg hover:shadow-xl transform hover:-translate-y-1'
+                  }`}
               >
-                Add Custom {categoryInfo[selectedCategory].title} to Cart
+                {isSubmitting ? (
+                  <div className="flex items-center justify-center space-x-2">
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Submitting Order...</span>
+                  </div>
+                ) : (
+                  'Submit Custom Order Request'
+                )}
               </button>
+
+              {(!shippingAddress || selectedSizes.length === 0) && (
+                <p className="text-sm text-red-600 mt-2">
+                  {!shippingAddress && 'Please add a shipping address. '}
+                  {selectedSizes.length === 0 && 'Please select at least one size.'}
+                </p>
+              )}
+            </div>
+
+            {/* Information Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12">
+              <div className="bg-white border border-gray-200 rounded-lg p-6 text-center">
+                <div className="text-3xl mb-3">⏱️</div>
+                <h4 className="font-semibold text-gray-900 mb-2">Processing Time</h4>
+                <p className="text-sm text-gray-600">
+                  Custom orders typically take 2-4 weeks to complete after approval
+                </p>
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded-lg p-6 text-center">
+                <div className="text-3xl mb-3">📞</div>
+                <h4 className="font-semibold text-gray-900 mb-2">Personal Consultation</h4>
+                <p className="text-sm text-gray-600">
+                  Our team will contact you within 24 hours to discuss your order
+                </p>
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded-lg p-6 text-center">
+                <div className="text-3xl mb-3">🚚</div>
+                <h4 className="font-semibold text-gray-900 mb-2">US Shipping Only</h4>
+                <p className="text-sm text-gray-600">
+                  We currently ship custom jewelry within the United States only
+                </p>
+              </div>
+            </div>
+
+            {/* Materials & Process Information */}
+            <div className="bg-gray-50 rounded-lg p-8 mt-12">
+              <h3 className="text-2xl font-bold text-gray-900 mb-6 text-center">
+                Our Custom Process
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="text-center">
+                  <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <span className="text-purple-600 font-bold">1</span>
+                  </div>
+                  <h4 className="font-semibold text-gray-900 mb-2">Submit Request</h4>
+                  <p className="text-sm text-gray-600">
+                    Share your vision with detailed specifications
+                  </p>
+                </div>
+
+                <div className="text-center">
+                  <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <span className="text-purple-600 font-bold">2</span>
+                  </div>
+                  <h4 className="font-semibold text-gray-900 mb-2">Design Review</h4>
+                  <p className="text-sm text-gray-600">
+                    Our artisans review and provide quote
+                  </p>
+                </div>
+
+                <div className="text-center">
+                  <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <span className="text-purple-600 font-bold">3</span>
+                  </div>
+                  <h4 className="font-semibold text-gray-900 mb-2">Approval</h4>
+                  <p className="text-sm text-gray-600">
+                    Approve design and make payment
+                  </p>
+                </div>
+
+                <div className="text-center">
+                  <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <span className="text-purple-600 font-bold">4</span>
+                  </div>
+                  <h4 className="font-semibold text-gray-900 mb-2">Handcraft</h4>
+                  <p className="text-sm text-gray-600">
+                    Expert crafting and quality assurance
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-8 text-center">
+                <h4 className="font-semibold text-gray-900 mb-3">Premium Materials Available</h4>
+                <div className="flex flex-wrap justify-center gap-4 text-sm text-gray-600">
+                  <span className="bg-white px-3 py-1 rounded-full">14K Gold</span>
+                  <span className="bg-white px-3 py-1 rounded-full">18K Gold</span>
+                  <span className="bg-white px-3 py-1 rounded-full">Sterling Silver</span>
+                  <span className="bg-white px-3 py-1 rounded-full">Platinum</span>
+                  <span className="bg-white px-3 py-1 rounded-full">Natural Diamonds</span>
+                  <span className="bg-white px-3 py-1 rounded-full">Precious Gemstones</span>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -555,3 +1124,4 @@ export default function CustomProductPage() {
     </div>
   )
 }
+

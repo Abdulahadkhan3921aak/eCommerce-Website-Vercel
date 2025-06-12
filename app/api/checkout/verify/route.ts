@@ -86,6 +86,9 @@ export async function POST(request: NextRequest) {
           state: session.shipping_details.address.state || order.shippingAddress.state,
           postal_code: session.shipping_details.address.postal_code || order.shippingAddress.postal_code,
           country: session.shipping_details.address.country || order.shippingAddress.country,
+          phone: order.shippingAddress.phone, // Keep existing phone
+          email: order.shippingAddress.email, // Keep existing email
+          residential: order.shippingAddress.residential, // Keep existing residential status
         };
       }
 
@@ -99,6 +102,8 @@ export async function POST(request: NextRequest) {
           state: session.customer_details.address.state || order.billingAddress.state,
           postal_code: session.customer_details.address.postal_code || order.billingAddress.postal_code,
           country: session.customer_details.address.country || order.billingAddress.country,
+          phone: order.billingAddress.phone,
+          email: order.billingAddress.email,
         };
       }
 

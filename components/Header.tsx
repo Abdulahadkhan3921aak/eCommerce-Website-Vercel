@@ -70,7 +70,8 @@ export default function Header() {
       : 'text-gray-700 hover:text-purple-600 transition-colors'
   }
 
-  const totalItems = getTotalItems()
+  // Use a more defensive approach for total items
+  const totalItems = isHydrated ? getTotalItems() : 0
 
   return (
     <>
@@ -97,7 +98,7 @@ export default function Header() {
               <Link href="/cart" className={`${getLinkClasses('/cart')} relative`}>
                 Cart
                 {isHydrated && totalItems > 0 && (
-                  <span className="absolute -top-2 -right-2 bg-purple-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                  <span className="absolute -top-2 -right-2 bg-purple-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center" suppressHydrationWarning>
                     {totalItems}
                   </span>
                 )}

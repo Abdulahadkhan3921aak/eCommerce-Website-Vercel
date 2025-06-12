@@ -27,11 +27,14 @@ interface OrderDetails {
   shippingMethod?: string
   // Replace fedexShipment with shippoShipment
   shippoShipment?: {
-    serviceLevelName?: string; // More generic than serviceName
+    serviceLevelName?: string;
     trackingNumber?: string;
-    estimatedDeliveryDays?: number; // Changed from estimatedDelivery string
+    estimatedDeliveryDays?: number;
     labelUrl?: string;
     carrier?: string;
+    cost?: number;
+    shipmentId?: string;
+    transactionId?: string;
   }
 }
 

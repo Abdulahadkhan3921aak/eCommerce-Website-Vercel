@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
 import Image from 'next/image'
+import { usePopup } from '@/lib/contexts/PopupContext'
 
 interface ImageUploadProps {
     images: string[]
@@ -14,6 +15,7 @@ export default function ImageUpload({ images, onImagesChange, maxImages = 10 }: 
     const [uploading, setUploading] = useState(false)
     const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({})
     const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+    const { showAlert } = usePopup()
 
     const uploadToCloudinary = async (file: File): Promise<string> => {
         const formData = new FormData()
@@ -38,7 +40,7 @@ export default function ImageUpload({ images, onImagesChange, maxImages = 10 }: 
 
     const onDrop = useCallback(async (acceptedFiles: File[]) => {
         if (images.length + acceptedFiles.length > maxImages) {
-            alert(`You can only upload up to ${maxImages} images`)
+            showAlert(`You can only upload up to ${maxImages} images`, 'warning')
             return
         }
 
@@ -76,12 +78,12 @@ export default function ImageUpload({ images, onImagesChange, maxImages = 10 }: 
             }
         } catch (error) {
             console.error('Upload error:', error)
-            alert('Some images failed to upload. Please try again.')
+            showAlert('Some images failed to upload. Please try again.', 'error')
         } finally {
             setUploading(false)
             setUploadProgress({})
         }
-    }, [images, maxImages, onImagesChange])
+    }, [images, maxImages, onImagesChange, showAlert])
 
     const { getRootProps, getInputProps, isDragActive } = useDropzone({
         onDrop,

@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import { CartProvider } from "@/lib/contexts/CartContext";
+import { PopupProvider } from "@/lib/contexts/PopupContext";
 import CartNotification from "@/components/ui/CartNotification";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -96,8 +97,10 @@ export default function RootLayout({
         </head>
         <body className={inter.className}>
           <CartProvider>
-            {children}
-            <CartNotification />
+            <PopupProvider>
+              {children}
+              <CartNotification />
+            </PopupProvider>
           </CartProvider>
         </body>
       </html>

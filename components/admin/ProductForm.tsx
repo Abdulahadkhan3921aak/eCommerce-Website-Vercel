@@ -73,7 +73,7 @@ export default function ProductForm({ initialData, onSubmit, isEditing = false }
 
   useEffect(() => {
     if (initialData) {
-      // Calculate salePrice from saleConfig for backward compatibility
+      // Caly
       let calculatedSalePrice = initialData.salePrice
       if (initialData.saleConfig?.isOnSale && !calculatedSalePrice) {
         const { saleType, saleValue } = initialData.saleConfig

@@ -1,21 +1,25 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
-export interface Category extends Document {
-  _id: string
-  name: string
+export interface ICategory extends Document {
+  name: 'ring' | 'earring' | 'bracelet' | 'necklace' // Only singular forms
   slug: string
   description?: string
   image?: string
-  createdAt?: Date
-  updatedAt?: Date
+  featured?: boolean
+  sortOrder?: number
 }
 
 const CategorySchema: Schema = new Schema({
   name: {
     type: String,
-    required: [true, 'Category name is required'],
-    trim: true,
+    required: true,
     unique: true,
+    enum: {
+      values: ['ring', 'earring', 'bracelet', 'necklace'],
+      message: 'Category name must be one of: ring, earring, bracelet, necklace (singular forms only)'
+    },
+    lowercase: true,
+    trim: true
   },
   slug: {
     type: String,
@@ -36,12 +40,12 @@ const CategorySchema: Schema = new Schema({
   timestamps: true,
 });
 
-// Pre-save middleware to generate slug from name if not provided
+// Pre-save middleware to ensure slug matches name
 CategorySchema.pre('save', function (next) {
-  if (!this.slug && this.name) {
-    this.slug = this.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  if (this.isModified('name')) {
+    this.slug = this.name
   }
-  next();
+  next()
 });
 
-export default mongoose.models.Category || mongoose.model<Category>('Category', CategorySchema);
+export default mongoose.models.Category || mongoose.model<ICategory>('Category', CategorySchema);

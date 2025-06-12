@@ -53,26 +53,30 @@ export async function POST(request: NextRequest) {
         image: (cartItem.unitImages && cartItem.unitImages.length > 0 ? cartItem.unitImages[0] :
           cartItem.images && cartItem.images.length > 0 ? cartItem.images[0] :
             product.images[0]) || "/placeholder-image.png",
+        // Preserve weight and dimension info with units
+        weight: cartItem.weight,
+        weightUnit: cartItem.weightUnit || 'lb',
+        dimensions: cartItem.dimensions
       })
     }
 
     // Calculate shipping using selected rate
-    // const FREE_SHIPPING_THRESHOLD = parseFloat(process.env.FREE_SHIPPING_THRESHOLD || "100");
-    // const qualifiesForFreeShipping = subtotal >= FREE_SHIPPING_THRESHOLD; // This logic is now handled in /api/shipping/rates
-
     let shippingCost = 0;
     let shippoShipmentDetails = undefined;
 
     if (selectedShippingRate) {
-      shippingCost = selectedShippingRate.cost; // This cost already considers free shipping
+      shippingCost = selectedShippingRate.cost;
       shippoShipmentDetails = {
         rateId: selectedShippingRate.rateId,
         carrier: selectedShippingRate.provider,
         serviceLevelToken: selectedShippingRate.serviceType,
         serviceLevelName: selectedShippingRate.serviceName,
-        cost: shippingCost, // Store the final cost applied
+        cost: shippingCost,
         estimatedDeliveryDays: selectedShippingRate.deliveryDays,
-        // trackingNumber and labelUrl will be added upon approval/label creation
+        shipmentId: null, // Will be set when shipment is created for label
+        transactionId: null, // Will be set when transaction is created for label
+        trackingNumber: null, // Will be set when label is created
+        labelUrl: null, // Will be set when label is created
       };
     }
 
@@ -96,24 +100,23 @@ export async function POST(request: NextRequest) {
       shippingCost: actualShippingCost,
       tax,
       total,
-      status: 'pending_approval', // Initial status
-      paymentStatus: 'pending_approval', // Initial payment status
+      status: 'pending_approval',
+      paymentStatus: 'pending_approval',
       shippingAddress: {
         name: shippingAddress.name,
         line1: shippingAddress.line1,
         line2: shippingAddress.line2,
         city: shippingAddress.city,
         state: shippingAddress.state,
-        postal_code: shippingAddress.postalCode,
-        country: shippingAddress.country || 'US', // Ensure US, or validate if other countries allowed
+        postal_code: shippingAddress.postalCode || shippingAddress.zip, // Handle both field names
+        country: shippingAddress.country || 'US',
         phone: shippingAddress.phone,
         email: shippingAddress.email,
         residential: shippingAddress.residential,
       },
-      billingAddress: { // Placeholder: Stripe will collect billing address.
-        // We can update this later via webhook or after payment success if needed.
-        name: shippingAddress.name, // Default to shipping, can be updated
-        line1: '', // Stripe will collect
+      billingAddress: {
+        name: shippingAddress.name,
+        line1: '',
         city: '',
         state: '',
         postal_code: '',
@@ -122,8 +125,8 @@ export async function POST(request: NextRequest) {
       shippingMethod: selectedShippingRate ? selectedShippingRate.serviceName : 'Not selected',
       customerEmail: user.emailAddresses[0]?.emailAddress || shippingAddress.email,
       customerPhone: shippingAddress.phone || user.phoneNumbers[0]?.phoneNumber || '',
-      paymentMethod: 'stripe', // Default or derive from session.payment_method_types if possible later
       shippoShipment: shippoShipmentDetails,
+
       emailHistory: [],
       // shippingWeight, shippingDimensions, isPriceAdjusted, originalOrderId are not set at initial checkout
     });

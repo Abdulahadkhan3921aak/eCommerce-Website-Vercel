@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Image from "next/image"
 import Link from "next/link"
 import { useCart } from '@/lib/contexts/CartContext'
+import { usePopup } from '@/lib/contexts/PopupContext'
 import Header from "@/components/Header"
 import { Product, getProductPriceRange, isUnitOnSale, hasAnySale } from '@/lib/types/product'
 
@@ -41,6 +42,7 @@ export default function ProductsPage() {
   const [showMobileFilters, setShowMobileFilters] = useState(false)
 
   const { addToCart } = useCart()
+  const { showAlert } = usePopup()
 
   // Fetch products with pagination and filters
   const fetchProducts = async (page: number = 1) => {
@@ -158,36 +160,48 @@ export default function ProductsPage() {
     try {
       if (!product || !product._id) {
         console.error('Invalid product data:', product)
+        showAlert('Invalid product selected', 'error')
         return
       }
 
-      // For products with units, find the first available unit
+      // Validate base product price
+      if (typeof product.price !== 'number' || product.price <= 0) {
+        console.error('Invalid base product price:', product.price, product)
+        showAlert('This product has invalid pricing. Please contact support.', 'error')
+        return
+      }
+
+      // For products with units, find the first available unit with valid pricing
       if (product.units && product.units.length > 0) {
         const availableUnit = product.units.find(unit =>
-          unit && unit.unitId && (typeof unit.stock !== 'number' || unit.stock > 0)
+          unit &&
+          unit.unitId &&
+          (typeof unit.stock !== 'number' || unit.stock > 0) &&
+          typeof unit.price === 'number' &&
+          unit.price > 0
         )
         if (availableUnit) {
           addToCart(product, 1, availableUnit.size, availableUnit.color, availableUnit.unitId)
         } else {
-          alert('This product is currently out of stock')
+          console.warn('No available units with valid pricing found for product:', product._id)
+          showAlert('This product is currently out of stock or has invalid pricing', 'warning')
         }
       } else {
         // Legacy product without units
         if (product.totalStock === 0 || product.stock === 0) {
-          alert('This product is currently out of stock')
+          showAlert('This product is currently out of stock', 'warning')
           return
         }
         addToCart(product, 1) // Don't pass undefined unitId
       }
     } catch (error) {
       console.error('Error in handleAddToCart:', error)
-      alert('Error adding item to cart')
+      showAlert('Error adding item to cart', 'error')
     }
   }
 
   // Enhanced helper function to get a valid image URL from product or units
   const getValidImageUrl = (product: Product): string => {
-    console.log('Getting image for product:', product.name, 'Product images:', product.images, 'Units:', product.units?.length);
 
     // First try product-level images
     if (product.images && Array.isArray(product.images) && product.images.length > 0) {
@@ -196,7 +210,6 @@ export default function ProductsPage() {
       );
       if (validImage) {
         const cleanUrl = validImage.trim();
-        console.log('Found product image:', cleanUrl);
         if (cleanUrl.startsWith('http') || cleanUrl.startsWith('/')) {
           return cleanUrl;
         }
@@ -205,16 +218,13 @@ export default function ProductsPage() {
 
     // Then try unit-level images - check each unit for images
     if (product.units && Array.isArray(product.units) && product.units.length > 0) {
-      console.log('Checking units for images...');
       for (const unit of product.units) {
-        console.log('Unit:', unit.unitId, 'Images:', unit.images);
         if (unit.images && Array.isArray(unit.images) && unit.images.length > 0) {
           const validImage = unit.images.find(img =>
             img && typeof img === 'string' && img.trim().length > 0
           );
           if (validImage) {
             const cleanUrl = validImage.trim();
-            console.log('Found unit image:', cleanUrl);
             if (cleanUrl.startsWith('http') || cleanUrl.startsWith('/') || cleanUrl.startsWith('data:')) {
               return cleanUrl;
             }

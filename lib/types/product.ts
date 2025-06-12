@@ -5,36 +5,50 @@ export interface SaleConfig {
 }
 
 export interface ProductUnit {
-    unitId: string
+    _id?: string
+    unitId?: string
     size?: string
     color?: string
-    stock: number
     price: number
-    images?: string[]
-    saleConfig?: SaleConfig
+    stock: number
+    images: string[]
+    saleConfig: SaleConfig
+    sku?: string
 }
 
-export interface Product {
-    _id: string
-    name: string
-    slug?: string
-    description: string
-    images: string[]
-    category: string
-    sizes?: string[]
-    colors?: string[]
-    price: number
-    salePrice?: number
-    saleConfig?: SaleConfig
-    totalStock: number
-    stock?: number
-    units?: ProductUnit[]
-    featured: boolean
-    rating: number
-    reviews: number
-    customization?: any
-    weight?: number
-    dimensions?: { length: number; width: number; height: number }
+export type ProductCategory = 'ring' | 'earring' | 'bracelet' | 'necklace'
+
+// Category display names and validation
+export const PRODUCT_CATEGORIES: Record<ProductCategory, string> = {
+    ring: 'Ring',
+    earring: 'Earring',
+    bracelet: 'Bracelet',
+    necklace: 'Necklace'
+}
+
+// Helper function to validate category
+export function isValidCategory(category: string): category is ProductCategory {
+    return Object.keys(PRODUCT_CATEGORIES).includes(category)
+}
+
+// Helper function to normalize category (convert plural to singular)
+export function normalizeCategory(category: string): ProductCategory | null {
+    const normalized = category.toLowerCase().trim()
+
+    // Direct matches (singular forms)
+    if (isValidCategory(normalized)) {
+        return normalized as ProductCategory
+    }
+
+    // Convert plural to singular
+    const pluralToSingular: Record<string, ProductCategory> = {
+        'rings': 'ring',
+        'earrings': 'earring',
+        'bracelets': 'bracelet',
+        'necklaces': 'necklace'
+    }
+
+    return pluralToSingular[normalized] || null
 }
 
 // Calculate the effective price for a unit considering both product-level and unit-level sales

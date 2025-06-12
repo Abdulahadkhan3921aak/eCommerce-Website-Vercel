@@ -6,50 +6,70 @@ const isAdminRoute = createRouteMatcher([
     '/admin(.*)',
 ]);
 
+// Matches API routes that have their own auth
+const isAPIRoute = createRouteMatcher([
+    '/api(.*)',
+]);
+
 // Matches other routes that require general authentication but not necessarily admin role
 const isGeneralProtectedRoute = createRouteMatcher([
     '/checkout(.*)',
     // Add other routes like '/profile', '/orders', etc.
 ]);
 
+
 export default clerkMiddleware((auth, req) => {
 
-    // Handle admin routes
-    if (isAdminRoute(req)) {
-
-        // Use auth.protect to enforce authentication and role-based access.
-        // Clerk's protect function will handle redirection if conditions are not met.
-        auth.protect((sessionClaims) => {
-            // Check if the user has the 'admin' role in their privateMetadata.
-            // Ensure your admin users have {"role": "admin"} in their privateMetadata in the Clerk dashboard.
-            const userRole = sessionClaims?.privateMetadata?.role as string | undefined;
-            return userRole === 'admin' || userRole === 'owner';
-        }, {
-            // Redirect to sign-in if not authenticated
-            unauthenticatedUrl: process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL || '/sign-in',
-            // Redirect to home page (or a specific "unauthorized" page) if authenticated but not an admin
-            unauthorizedUrl: '/?error=unauthorized',
-        });
-
-        // If auth.protect() does not throw an error or redirect, it means the user is authenticated and authorized.
-        // Proceed with the request.
+    // Skip middleware for API routes Q- let them handle their own auth
+    if (isAPIRoute(req)) {
         return NextResponse.next();
+    }
+
+    // Handle admin routes (non-API)
+    if (isAdminRoute(req)) {
+        try {
+            // Use auth.protect to enforce authentication and role-based access.
+            auth.protect((sessionClaims) => {
+                // Check if the user has the 'admin' role in their privateMetadata.
+                const userRole = sessionClaims?.privateMetadata?.role as string | undefined;
+                return userRole === 'admin' || userRole === 'owner';
+            }, {
+                // Redirect to sign-in if not authenticated
+                unauthenticatedUrl: process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL || '/sign-in',
+                // Redirect to home page (or a specific "unauthorized" page) if authenticated but not an admin
+                unauthorizedUrl: '/?error=unauthorized',
+            });
+
+            return NextResponse.next();
+        } catch (error) {
+            // If there's an error in auth check, redirect to home with error
+            console.error('Admin route auth error:', error);
+            return NextResponse.redirect(new URL('/?error=unauthorized', req.url));
+        }
     }
 
     // Handle other protected routes that are not admin-specific
     if (isGeneralProtectedRoute(req)) {
+        try {
+            // Protect the route, just requires authentication, no specific role check here.
+            auth.protect(undefined, { // Passing undefined means only authentication is checked
+                unauthenticatedUrl: process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL || '/sign-in',
+            });
 
-        // Protect the route, just requires authentication, no specific role check here.
-        auth.protect(undefined, { // Passing undefined means only authentication is checked
-            unauthenticatedUrl: process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL || '/sign-in',
-        });
-
-        return NextResponse.next();
+            return NextResponse.next();
+        } catch (error) {
+            console.error('General protected route auth error:', error);
+            return NextResponse.redirect(new URL('/sign-in', req.url));
+        }
     }
 
     // For public routes, allow access
     return NextResponse.next();
-}, { debug: false }); // Enable Clerk debug mode for more detailed logs
+}, {
+    debug: false,
+    // Add publishableKey to prevent some auth issues
+    publishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+});
 
 export const config = {
     matcher: [

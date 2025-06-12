@@ -6,6 +6,7 @@ import Image from 'next/image'
 import { useCart } from '@/lib/contexts/CartContext'
 import { SignInButton, SignedIn, SignedOut, useUser } from "@clerk/nextjs"
 import Header from "@/components/Header"
+import { useRouter } from 'next/navigation'
 
 interface ShippingAddress {
   name: string;
@@ -13,331 +14,359 @@ interface ShippingAddress {
   line2?: string;
   city: string;
   state: string;
-  postalCode: string; // Keep as postalCode for form, map to 'zip' for Shippo
+  postalCode: string;
   country: string;
   residential?: boolean;
   phone?: string;
   email?: string;
 }
 
-interface ShippingRate {
-  rateId: string; // Shippo's rate object_id
-  serviceType: string; // Shippo's servicelevel.token (e.g., "usps_priority")
-  serviceName: string; // Descriptive name (e.g., "USPS Priority Mail")
-  cost: number;
-  originalCost: number; // Cost before free shipping adjustment
-  estimatedDelivery: string; // User-friendly string (e.g., "Approx. 3 days")
-  deliveryDays?: number; // Actual number of days if available
-  isFreeShipping?: boolean;
-  provider?: string; // e.g., "USPS", "FedEx"
-  providerLogo?: string; // URL for provider logo
-}
-
 export default function CartPage() {
-  const { items, removeFromCart, updateQuantity, getTotalPrice, getTotalItems, isLoading } = useCart()
-  const { user, isLoaded: isUserLoaded } = useUser() // Added isUserLoaded
-  const [isCheckoutLoading, setIsCheckoutLoading] = useState(false)
+  const { items, removeFromCart, updateQuantity, getTotalPrice, getTotalItems, isLoading, clearCart } = useCart()
+  const { user, isLoaded: isUserLoaded } = useUser()
+  const router = useRouter()
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false)
   const [showAddressForm, setShowAddressForm] = useState(false)
   const [shippingAddress, setShippingAddress] = useState<ShippingAddress | null>(null)
-  const [shippingRates, setShippingRates] = useState<ShippingRate[]>([])
-  const [selectedShippingRate, setSelectedShippingRate] = useState<ShippingRate | null>(null)
   const [addressValidationLoading, setAddressValidationLoading] = useState(false)
-  const [ratesLoading, setRatesLoading] = useState(false)
-  const [addressForm, setAddressForm] = useState<ShippingAddress>({ // Initialize with ShippingAddress type
+  const [addressForm, setAddressForm] = useState<ShippingAddress>({
     name: '',
     line1: '',
     line2: '',
     city: '',
     state: '',
     postalCode: '',
-    country: 'US', // Default to US
+    country: 'US',
     phone: '',
     email: ''
   })
   const [addressError, setAddressError] = useState('')
-  const [freeShippingThreshold, setFreeShippingThreshold] = useState(100) // Default, will be updated from API
-  const [qualifiesForFreeShipping, setQualifiesForFreeShipping] = useState(false)
+  const [isClientLoaded, setIsClientLoaded] = useState(false)
+  const [showSuccessPopup, setShowSuccessPopup] = useState(false)
+  const [orderNumber, setOrderNumber] = useState('')
 
+  // Handle client-side hydration
+  useEffect(() => {
+    setIsClientLoaded(true)
+  }, [])
+
+  // Filter out custom items from regular cart
+  const regularItems = items.filter(item => item.category !== 'custom')
+  const customItems = items.filter(item => item.category === 'custom')
 
   // Load saved address from user metadata or prefill from user profile
   useEffect(() => {
-    if (isUserLoaded && user) { // Ensure user data is loaded
-      const savedAddress = user.privateMetadata?.shippingAddress as ShippingAddress | undefined;
-      if (savedAddress) {
-        setShippingAddress(savedAddress);
-        setAddressForm({ // Ensure all fields are populated, including new ones
-          name: savedAddress.name || user.fullName || '',
-          line1: savedAddress.line1 || '',
-          line2: savedAddress.line2 || '',
-          city: savedAddress.city || '',
-          state: savedAddress.state || '',
-          postalCode: savedAddress.postalCode || '',
-          country: savedAddress.country || 'US',
-          phone: savedAddress.phone || user.phoneNumbers?.[0]?.phoneNumber || '',
-          email: savedAddress.email || user.emailAddresses?.[0]?.emailAddress || ''
-        });
-        // Automatically fetch rates if address is already set
-        if (items.length > 0) {
-          getShippingRates(savedAddress);
+    const loadSavedAddress = async () => {
+      if (!isUserLoaded || !user) {
+        return
+      }
+
+      try {
+        const response = await fetch('/api/user/get-shipping-address')
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch shipping address')
         }
-      } else {
-        // Pre-fill from Clerk user data if no saved address
+
+        const data = await response.json()
+
+        if (data.success && data.address) {
+          if (data.hasAddress) {
+            setShippingAddress(data.address)
+            setAddressForm(data.address)
+          } else {
+            setAddressForm(prev => ({
+              ...prev,
+              ...data.address
+            }))
+          }
+        }
+      } catch (error) {
+
+        // Fallback to basic user data
         setAddressForm(prev => ({
           ...prev,
           name: user.fullName || '',
           phone: user.phoneNumbers?.[0]?.phoneNumber || '',
           email: user.emailAddresses?.[0]?.emailAddress || ''
-        }));
+        }))
       }
     }
-  }, [user, isUserLoaded, items.length]) // Add items.length to re-fetch rates if cart changes and address exists
 
-  const handleAddressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setAddressForm(prev => ({ ...prev, [name]: name === 'state' ? value.toUpperCase() : value }));
-  };
+    loadSavedAddress()
+  }, [user, isUserLoaded]) // Remove items.length and regularItems.length from dependencies
 
+  const handleAddressChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target
+    setAddressForm(prev => ({
+      ...prev,
+      [name]: name === 'state' ? value.toUpperCase() : value
+    }))
+  }
+
+  const saveAddressToClerk = async (address: ShippingAddress) => {
+    try {
+      const response = await fetch('/api/user/save-shipping-address', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ shippingAddress: address }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to save address')
+      } else {
+        const responseData = await response.json()
+      }
+    } catch (error) {
+      // Don't throw the error - we don't want to block the form submission if saving fails
+    }
+  }
 
   const handleAddressSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setAddressValidationLoading(true)
     setAddressError('')
-    setShippingRates([]) // Clear old rates
-    setSelectedShippingRate(null)
 
     // Basic client-side validation for required fields
-    if (!addressForm.name || !addressForm.line1 || !addressForm.city || !addressForm.state || !addressForm.postalCode || !addressForm.country) {
-      setAddressError('Please fill in all required address fields (*).');
-      setAddressValidationLoading(false);
-      return;
+    if (!addressForm.name?.trim() || !addressForm.line1?.trim() || !addressForm.city?.trim() ||
+      !addressForm.state?.trim() || !addressForm.postalCode?.trim() || !addressForm.country?.trim()) {
+
+      const missingFields = []
+      if (!addressForm.name?.trim()) missingFields.push('name')
+      if (!addressForm.line1?.trim()) missingFields.push('street address')
+      if (!addressForm.city?.trim()) missingFields.push('city')
+      if (!addressForm.state?.trim()) missingFields.push('state')
+      if (!addressForm.postalCode?.trim()) missingFields.push('ZIP code')
+      if (!addressForm.country?.trim()) missingFields.push('country')
+
+      setAddressError(`Please fill in all required fields: ${missingFields.join(', ')}.`)
+      setAddressValidationLoading(false)
+      return
     }
-    if (addressForm.country === 'US' && (addressForm.line1.toLowerCase().includes('po box') || addressForm.line1.toLowerCase().includes('p.o. box'))) {
-      setAddressError('PO Box addresses are not accepted for US shipments. Please provide a street address.');
-      setAddressValidationLoading(false);
-      return;
-    }
 
-
-    try {
-      const response = await fetch('/api/shipping/validate-address', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(addressForm), // Send current form state
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Address validation failed')
-      }
-
-      if (!data.isValid) {
-        setAddressError(data.messages?.join('. ') || 'Invalid address. Please check and try again.')
-        // Optionally update form with corrected suggestions if available and desired
-        if (data.correctedAddress) {
-          // Example: setAddressForm(data.correctedAddress) // if you want to auto-fill corrections
-        }
+    // US-specific validation
+    if (addressForm.country === 'US') {
+      // Check for PO Box
+      if (/\bP\.?O\.?\s*BOX\b/i.test(addressForm.line1)) {
+        setAddressError('PO Boxes are not supported for US shipping. Please provide a street address.')
+        setAddressValidationLoading(false)
         return
       }
 
-      const validatedAddress: ShippingAddress = {
-        name: data.correctedAddress?.name || addressForm.name,
-        line1: data.correctedAddress?.line1 || addressForm.line1,
-        line2: data.correctedAddress?.line2 || addressForm.line2,
-        city: data.correctedAddress?.city || addressForm.city,
-        state: data.correctedAddress?.state || addressForm.state,
-        postalCode: data.correctedAddress?.postalCode || addressForm.postalCode,
-        country: data.correctedAddress?.country || addressForm.country,
-        residential: data.isResidential, // This comes from our API response
-        phone: data.correctedAddress?.phone || addressForm.phone,
-        email: data.correctedAddress?.email || addressForm.email,
-      };
-
-      setShippingAddress(validatedAddress)
-      setAddressForm(validatedAddress) // Update form with validated/corrected address
-      setShowAddressForm(false)
-
-      // Get shipping rates if cart is not empty
-      if (items.length > 0) {
-        await getShippingRates(validatedAddress)
-      } else {
-        setRatesLoading(false) // Ensure ratesLoading is false if cart is empty
+      // Validate ZIP code format
+      if (!/^\d{5}(-\d{4})?$/.test(addressForm.postalCode)) {
+        setAddressError('Please enter a valid US ZIP code (e.g., 12345 or 12345-6789).')
+        setAddressValidationLoading(false)
+        return
       }
 
-    } catch (error) {
-      setAddressError(error instanceof Error ? error.message : 'Address validation failed')
-    } finally {
-      setAddressValidationLoading(false)
-    }
-  }
+      // Enhanced state validation
+      const validStates = [
+        'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
+        'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
+        'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+        'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
+        'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC'
+      ]
 
-  const getShippingRates = async (addressToUse: ShippingAddress) => {
-    if (!addressToUse || items.length === 0) {
-      setShippingRates([])
-      setSelectedShippingRate(null)
-      setRatesLoading(false)
-      return
-    }
-    setRatesLoading(true)
-    setAddressError('') // Clear previous address errors when fetching rates
-    try {
-      const response = await fetch('/api/shipping/rates', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          address: addressToUse, // Use the provided address
-          cartItems: items.map(item => ({ // Send necessary item details for parcel calculation
-            _id: item._id,
-            name: item.name,
-            quantity: item.quantity,
-            effectivePrice: item.effectivePrice,
-            weight: item.weight || 0.5, // Default weight in lbs if not specified
-            length: item.dimensions?.length || 6, // Default dimensions in inches
-            width: item.dimensions?.width || 6,
-            height: item.dimensions?.height || 6,
-          })),
-        }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to get shipping rates')
+      const stateNameMap: { [key: string]: string } = {
+        'ALABAMA': 'AL', 'ALASKA': 'AK', 'ARIZONA': 'AZ', 'ARKANSAS': 'AR',
+        'CALIFORNIA': 'CA', 'COLORADO': 'CO', 'CONNECTICUT': 'CT', 'DELAWARE': 'DE',
+        'FLORIDA': 'FL', 'GEORGIA': 'GA', 'HAWAII': 'HI', 'IDAHO': 'ID',
+        'ILLINOIS': 'IL', 'INDIANA': 'IN', 'IOWA': 'IA', 'KANSAS': 'KS',
+        'KENTUCKY': 'KY', 'LOUISIANA': 'LA', 'MAINE': 'ME', 'MARYLAND': 'MD',
+        'MASSACHUSETTS': 'MA', 'MICHIGAN': 'MI', 'MINNESOTA': 'MN', 'MISSISSIPPI': 'MS',
+        'MISSOURI': 'MO', 'MONTANA': 'MT', 'NEBRASKA': 'NE', 'NEVADA': 'NV',
+        'NEW HAMPSHIRE': 'NH', 'NEW JERSEY': 'NJ', 'NEW MEXICO': 'NM', 'NEW YORK': 'NY',
+        'NORTH CAROLINA': 'NC', 'NORTH DAKOTA': 'ND', 'OHIO': 'OH', 'OKLAHOMA': 'OK',
+        'OREGON': 'OR', 'PENNSYLVANIA': 'PA', 'RHODE ISLAND': 'RI', 'SOUTH CAROLINA': 'SC',
+        'SOUTH DAKOTA': 'SD', 'TENNESSEE': 'TN', 'TEXAS': 'TX', 'UTAH': 'UT',
+        'VERMONT': 'VT', 'VIRGINIA': 'VA', 'WASHINGTON': 'WA', 'WEST VIRGINIA': 'WV',
+        'WISCONSIN': 'WI', 'WYOMING': 'WY', 'DISTRICT OF COLUMBIA': 'DC'
       }
 
-      setFreeShippingThreshold(data.freeShippingThreshold || 100)
-      setQualifiesForFreeShipping(data.qualifiesForFreeShipping || false)
+      const stateUpper = addressForm.state.toUpperCase().trim()
+      const isValidStateCode = validStates.includes(stateUpper)
+      const isValidStateName = stateNameMap[stateUpper]
 
-      const fetchedRates: ShippingRate[] = data.rates || []
-      setShippingRates(fetchedRates)
+      if (!isValidStateCode && !isValidStateName) {
+        setAddressError('Please enter a valid US state (e.g., FL or Florida).')
+        setAddressValidationLoading(false)
+        return
+      }
 
+      // Convert full state name to abbreviation for consistency
+      if (isValidStateName && !isValidStateCode) {
+        setAddressForm(prev => ({
+          ...prev,
+          state: stateNameMap[stateUpper]
+        }))
+      }
 
-      if (fetchedRates.length > 0) {
-        // Auto-select the cheapest rate, or the first free one if available
-        const freeRate = fetchedRates.find(rate => rate.isFreeShipping);
-        if (freeRate) {
-          setSelectedShippingRate(freeRate);
-        } else {
-          setSelectedShippingRate(fetchedRates.sort((a, b) => a.cost - b.cost)[0]);
+      try {
+        // Use the current form state (which might have been updated above)
+        const addressToValidate = {
+          ...addressForm,
+          state: isValidStateName && !isValidStateCode ? stateNameMap[stateUpper] : addressForm.state
         }
-      } else {
-        setSelectedShippingRate(null)
-        setAddressError('No shipping options available for this address. Please check the address or contact support.')
-      }
 
-    } catch (error) {
-      console.error('Error getting shipping rates:', error)
-      setAddressError(error instanceof Error ? error.message : 'Failed to calculate shipping rates. Please try again.')
-      setShippingRates([])
-      setSelectedShippingRate(null)
-    } finally {
-      setRatesLoading(false)
+
+        // Validate address with shipping service
+        const response = await fetch('/api/shipping/validate-address', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ address: addressToValidate }),
+        })
+
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Address validation failed')
+        }
+
+        if (!data.isValid) {
+          setAddressError(data.messages?.join('. ') || 'Invalid address. Please check and try again.')
+          setAddressValidationLoading(false)
+          return
+        }
+
+        const validatedAddress: ShippingAddress = {
+          name: data.correctedAddress?.name || addressToValidate.name,
+          line1: data.correctedAddress?.line1 || addressToValidate.line1,
+          line2: data.correctedAddress?.line2 || addressToValidate.line2,
+          city: data.correctedAddress?.city || addressToValidate.city,
+          state: data.correctedAddress?.state || addressToValidate.state,
+          postalCode: data.correctedAddress?.postalCode || addressToValidate.postalCode,
+          country: data.correctedAddress?.country || addressToValidate.country,
+          residential: data.isResidential,
+          phone: data.correctedAddress?.phone || addressToValidate.phone,
+          email: data.correctedAddress?.email || addressToValidate.email,
+        }
+
+        setShippingAddress(validatedAddress)
+        setAddressForm(validatedAddress)
+        setShowAddressForm(false)
+
+        // Save the validated address to Clerk private metadata
+        await saveAddressToClerk(validatedAddress)
+
+      } catch (error) {
+        console.error('Address validation error:', error)
+        setAddressError(error instanceof Error ? error.message : 'Address validation failed')
+      } finally {
+        setAddressValidationLoading(false)
+      }
+    } else {
+      // For non-US countries, just validate required fields and proceed
+      try {
+        const addressToValidate = { ...addressForm }
+
+        const validatedAddress: ShippingAddress = {
+          name: addressToValidate.name,
+          line1: addressToValidate.line1,
+          line2: addressToValidate.line2,
+          city: addressToValidate.city,
+          state: addressToValidate.state,
+          postalCode: addressToValidate.postalCode,
+          country: addressToValidate.country,
+          residential: true, // Default for non-US
+          phone: addressToValidate.phone,
+          email: addressToValidate.email,
+        }
+
+        setShippingAddress(validatedAddress)
+        setAddressForm(validatedAddress)
+        setShowAddressForm(false)
+
+        // Save the address to Clerk private metadata
+        await saveAddressToClerk(validatedAddress)
+
+      } catch (error) {
+        console.error('Address save error:', error)
+        setAddressError('Failed to save address. Please try again.')
+      } finally {
+        setAddressValidationLoading(false)
+      }
     }
   }
 
-  const handleCheckout = async () => {
-    if (items.length === 0) {
-      alert('Your cart is empty!')
+  const handlePlaceOrder = async () => {
+    if (regularItems.length === 0) {
+      showAlert('Your cart is empty!', 'warning')
       return
     }
 
-    setIsCheckoutLoading(true)
+    if (!shippingAddress) {
+      showAlert('Please add a shipping address', 'warning')
+      return
+    }
+
+    setIsSubmittingOrder(true)
     try {
-      // Calculate final shipping cost
-      const shippingCost = selectedShippingRate ? selectedShippingRate.cost : 0
-
-      // Format items for Stripe
-      const stripeItems = items.map(item => ({
-        price_data: {
-          currency: 'usd',
-          product_data: {
-            name: item.name,
-            images: item.images.length > 0 ? [item.images[0]] : [],
-            description: `Quantity: ${item.quantity}`,
-          },
-          unit_amount: Math.round(item.effectivePrice * 100),
-        },
-        quantity: item.quantity,
-      }))
-
-      // Add shipping as a line item if there's a cost
-      if (shippingCost > 0 && selectedShippingRate) {
-        stripeItems.push({
-          price_data: {
-            currency: 'usd',
-            product_data: {
-              name: selectedShippingRate.serviceName || 'Shipping',
-              description: `Estimated delivery: ${selectedShippingRate.estimatedDelivery}`,
-            },
-            unit_amount: Math.round(shippingCost * 100),
-          },
-          quantity: 1,
-        })
-      }
-
-      const response = await fetch('/api/checkout', {
+      // Create order without shipping rate calculations
+      const response = await fetch('/api/orders/create-direct', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          items: stripeItems, // These are for Stripe's line_items
-          cartItems: items.map(item => ({ // These are for creating the Order document
-            _id: item._id,
-            productId: item.productId, // Ensure productId is passed if different from _id
-            name: item.name,
-            price: item.price, // Original price
-            salePrice: item.salePrice,
-            effectivePrice: item.effectivePrice, // Price used for subtotal
-            quantity: item.quantity,
-            images: item.images,
-            size: item.size,
-            color: item.color,
+          cartItemIds: regularItems.map(item => ({
+            productId: item.productId || item._id?.split('_')[0] || item._id,
             unitId: item.unitId,
-            category: item.category,
-            // Pass weight and dimensions if needed for order record, though primarily used for rate calc
-            weight: item.weight,
-            dimensions: item.dimensions,
+            quantity: item.quantity,
+            size: item.size,
+            color: item.color
           })),
-          shippingAddress, // The validated and selected shipping address
-          selectedShippingRate, // The full selected shipping rate object
+          shippingAddress,
+          customerInfo: {
+            name: user?.fullName || shippingAddress.name,
+            email: user?.emailAddresses?.[0]?.emailAddress || shippingAddress.email,
+            phone: user?.phoneNumbers?.[0]?.phoneNumber || shippingAddress.phone,
+          }
         }),
       })
 
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || 'Checkout failed')
+        throw new Error(data.error || 'Failed to create order')
       }
 
-      if (data.sessionUrl) {
-        window.location.href = data.sessionUrl
-      } else {
-        throw new Error('No checkout URL received')
-      }
+      // Clear cart after successful order creation
+      console.log('Order created successfully, clearing cart...')
+      await clearCart()
+
+      // Set order number and show success popup
+      setOrderNumber(data.orderNumber)
+      setShowSuccessPopup(true)
+
+      console.log('Cart cleared successfully after order placement')
+
     } catch (error) {
-      console.error('Checkout error:', error)
-      alert(`Checkout failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      console.error('Order creation error:', error)
+      showAlert(`Failed to create order: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error')
     } finally {
-      setIsCheckoutLoading(false)
+      setIsSubmittingOrder(false)
     }
   }
 
-  const subtotal = getTotalPrice()
-  // Shipping cost is now directly from selectedShippingRate.cost, which already considers free shipping
-  const shipping = selectedShippingRate ? selectedShippingRate.cost : 0;
-  const taxRate = 0.08; // Default: 8% tax. Consider making this configurable.
-  const tax = (subtotal + (selectedShippingRate && !selectedShippingRate.isFreeShipping ? selectedShippingRate.originalCost : 0)) * taxRate; // Tax on subtotal + original shipping cost if not free
-  const total = subtotal + shipping + tax
+  const handleCloseSuccessPopup = () => {
+    setShowSuccessPopup(false)
+    setOrderNumber('')
+    router.push('/products')
+  }
 
-  // Calculate how much more needed for free shipping
-  const amountNeededForFreeShipping = Math.max(0, freeShippingThreshold - subtotal)
+  // Update calculations to use regular items only
+  const subtotal = regularItems.reduce((total, item) => total + item.effectivePrice * item.quantity, 0)
+  const regularItemsCount = regularItems.reduce((total, item) => total + item.quantity, 0)
 
-  if (isLoading) {
+  // Show loading state until both client and cart are loaded
+  if (!isClientLoaded || isLoading) {
     return (
       <div className="min-h-screen bg-white">
         <Header />
@@ -358,23 +387,56 @@ export default function CartPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-6 sm:mb-8">Shopping Cart</h1>
 
-        {items.length === 0 ? (
+        {/* Custom Items Notice */}
+        {customItems.length > 0 && (
+          <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <h3 className="font-semibold text-yellow-800 mb-2">Custom Orders Detected</h3>
+            <p className="text-yellow-700 text-sm mb-3">
+              You have {customItems.length} custom order(s) that require separate processing.
+              These items will be handled through our custom order system.
+            </p>
+            <div className="space-y-2">
+              {customItems.map((item, index) => (
+                <div key={`custom-${item._id}-${index}`} className="bg-white rounded p-3 border border-yellow-200">
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium">{item.name}</span>
+                    <button
+                      onClick={() => removeFromCart(item._id)}
+                      className="text-red-600 hover:text-red-800 text-sm"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <p className="text-sm text-gray-600">Quantity: {item.quantity}</p>
+                  {item.size && <p className="text-sm text-gray-600">Size: {item.size}</p>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {regularItems.length === 0 ? (
           <div className="text-center py-8 sm:py-12">
             <svg className="mx-auto h-10 w-10 sm:h-12 sm:w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4m0 0L7 13m0 0l-2.5 5M7 13v6a2 2 0 002 2h8a2 2 0 002-2v-6M7 13H5a2 2 0 00-2 2v4a2 2 0 002 2h2" />
             </svg>
             <h3 className="mt-2 text-lg font-medium text-gray-900">Your cart is empty</h3>
             <p className="mt-1 text-gray-600">Start adding some items to your cart!</p>
-            <Link href="/products" className="mt-4 sm:mt-6 btn-primary inline-block">
-              Continue Shopping
-            </Link>
+            <div className="mt-4 sm:mt-6 space-x-4">
+              <Link href="/products" className="btn-primary inline-block">
+                Continue Shopping
+              </Link>
+              <Link href="/custom" className="btn-secondary inline-block">
+                Create Custom Order
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="lg:grid lg:grid-cols-12 lg:gap-x-12">
-            {/* Cart Items */}
+            {/* Cart Items - Only Regular Items */}
             <div className="lg:col-span-8">
               <div className="space-y-4 sm:space-y-6">
-                {items.map((item, index) => (
+                {regularItems.map((item, index) => (
                   <div key={`${item._id}-${index}`} className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4 bg-white p-4 sm:p-6 rounded-lg border border-gray-200 shadow-sm">
                     <div className="w-full sm:w-24 h-48 sm:h-24 flex-shrink-0">
                       <Image
@@ -446,7 +508,7 @@ export default function CartPage() {
               </div>
             </div>
 
-            {/* Order Summary */}
+            {/* Order Summary - Only for Regular Items */}
             <div className="lg:col-span-4 mt-6 lg:mt-0">
               <div className="bg-gray-50 rounded-lg p-4 sm:p-6 border border-gray-200 space-y-6">
                 <h2 className="text-lg sm:text-xl font-bold text-gray-900">Order Summary</h2>
@@ -457,39 +519,9 @@ export default function CartPage() {
                     🇺🇸 US Shipping Only - No PO Boxes
                   </p>
                   <p className="text-xs text-blue-700">
-                    Ensure your address is correct. We validate addresses before showing shipping rates.
+                    Shipping costs and payment details will be provided after order review.
                   </p>
                 </div>
-
-                {/* Free Shipping Progress */}
-                {items.length > 0 && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-                    {qualifiesForFreeShipping ? (
-                      <div className="flex items-center">
-                        <svg className="h-5 w-5 text-green-600 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                        <span className="text-green-800 font-medium">🎉 You qualify for FREE shipping!</span>
-                      </div>
-                    ) : (
-                      <div>
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-blue-800 font-medium">Free shipping on orders ${freeShippingThreshold.toFixed(2)}+</span>
-                          <span className="text-blue-600 text-sm">
-                            ${amountNeededForFreeShipping.toFixed(2)} away
-                          </span>
-                        </div>
-                        <div className="w-full bg-blue-200 rounded-full h-2">
-                          <div
-                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                            style={{ width: `${Math.min(100, (subtotal / freeShippingThreshold) * 100)}%` }}
-                          ></div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
 
                 {/* Shipping Address Section */}
                 <div>
@@ -506,10 +538,7 @@ export default function CartPage() {
                       {shippingAddress.phone && <p className="text-sm text-gray-600">Phone: {shippingAddress.phone}</p>}
                       {shippingAddress.email && <p className="text-sm text-gray-600">Email: {shippingAddress.email}</p>}
                       <button
-                        onClick={() => {
-                          setShowAddressForm(true);
-                          // setAddressForm(shippingAddress); // Ensure form is populated with current address for editing
-                        }}
+                        onClick={() => setShowAddressForm(true)}
                         className="mt-2 text-sm text-purple-600 hover:text-purple-800 font-medium"
                       >
                         Change Address
@@ -524,7 +553,7 @@ export default function CartPage() {
                     </button>
                   )}
 
-                  {/* Address Form Modal or Inline */}
+                  {/* Address Form Modal */}
                   {showAddressForm && (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                       <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
@@ -555,6 +584,7 @@ export default function CartPage() {
                               placeholder="Optional but recommended"
                             />
                           </div>
+
                           <div>
                             <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
                               Email (for order updates) *
@@ -609,7 +639,7 @@ export default function CartPage() {
                                 type="text" id="state" name="state" required
                                 value={addressForm.state} onChange={handleAddressChange}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                maxLength={20} // Allow longer for non-US, or adjust based on country
+                                maxLength={20}
                                 placeholder="e.g., CA or California"
                               />
                             </div>
@@ -626,6 +656,7 @@ export default function CartPage() {
                               placeholder="e.g., 90210"
                             />
                           </div>
+
                           <div>
                             <label htmlFor="country" className="block text-sm font-medium text-gray-700 mb-1">Country *</label>
                             <select
@@ -635,11 +666,11 @@ export default function CartPage() {
                               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                             >
                               <option value="US">United States</option>
-                              {/* Add other countries if you ship internationally */}
-                              {/* <option value="CA">Canada</option> */}
                             </select>
+                            <p className="mt-1 text-xs text-gray-500">
+                              📏 Shipping calculations use US Imperial units (inches, pounds)
+                            </p>
                           </div>
-
 
                           {addressError && (
                             <div className="bg-red-50 border border-red-200 rounded-md p-3">
@@ -653,7 +684,6 @@ export default function CartPage() {
                               onClick={() => {
                                 setShowAddressForm(false)
                                 setAddressError('')
-                                // Optionally reset addressForm to shippingAddress if editing was cancelled
                                 if (shippingAddress) setAddressForm(shippingAddress);
                               }}
                               className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
@@ -665,7 +695,7 @@ export default function CartPage() {
                               disabled={addressValidationLoading}
                               className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
                             >
-                              {addressValidationLoading ? 'Validating...' : (shippingAddress ? 'Save & Get Rates' : 'Validate & Get Rates')}
+                              {addressValidationLoading ? 'Validating...' : (shippingAddress ? 'Save Address' : 'Validate & Save')}
                             </button>
                           </div>
                         </form>
@@ -674,107 +704,48 @@ export default function CartPage() {
                   )}
                 </div>
 
-                {/* Shipping Options */}
-                {shippingAddress && items.length > 0 && (
-                  <div>
-                    <h3 className="text-base font-semibold text-gray-900 mb-3">Shipping Options</h3>
-                    {ratesLoading ? (
-                      <div className="text-center py-4">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600 mx-auto"></div>
-                        <p className="mt-2 text-sm text-gray-600">Calculating shipping...</p>
-                      </div>
-                    ) : shippingRates.length > 0 ? (
-                      <div className="space-y-2">
-                        {shippingRates.map((rate) => (
-                          <label key={rate.rateId} className={`flex items-center p-3 border rounded-md cursor-pointer hover:bg-gray-100 transition-colors ${selectedShippingRate?.rateId === rate.rateId ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-300' : 'border-gray-200'}`}>
-                            <input
-                              type="radio"
-                              name="shippingOption"
-                              checked={selectedShippingRate?.rateId === rate.rateId}
-                              onChange={() => setSelectedShippingRate(rate)}
-                              className="mr-3 h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300"
-                            />
-                            {rate.providerLogo && (
-                              <Image src={rate.providerLogo} alt={rate.provider || ''} width={24} height={24} className="mr-2 h-6 w-auto object-contain" />
-                            )}
-                            <div className="flex-1">
-                              <p className="font-medium text-sm text-gray-900">
-                                {rate.serviceName}
-                                {rate.isFreeShipping && (
-                                  <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                    FREE
-                                  </span>
-                                )}
-                              </p>
-                              <p className="text-xs text-gray-600">{rate.estimatedDelivery}</p>
-                            </div>
-                            <p className="font-semibold text-sm text-gray-900">
-                              ${rate.cost.toFixed(2)}
-                            </p>
-                          </label>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-4">
-                        <p className="text-sm text-gray-600">No shipping options available for the selected address.</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
                 {/* Order Total Summary */}
                 <div className="border-t border-gray-200 pt-4">
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Subtotal ({getTotalItems()} items)</span>
+                      <span className="text-gray-600">Subtotal ({regularItemsCount} items)</span>
                       <span className="font-medium text-gray-900">${subtotal.toFixed(2)}</span>
                     </div>
 
-                    {shippingAddress && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">
-                          Shipping {selectedShippingRate ? `(${selectedShippingRate.serviceName})` : ''}
-                        </span>
-                        <span className="font-medium text-gray-900">
-                          {!selectedShippingRate ? (
-                            <span className="text-gray-500">Select shipping option</span>
-                          ) : selectedShippingRate.isFreeShipping ? (
-                            <span className="text-green-600">FREE</span>
-                          ) : (
-                            `$${shipping.toFixed(2)}`
-                          )}
-                        </span>
-                      </div>
-                    )}
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Shipping</span>
+                      <span className="font-medium text-gray-900">TBD</span>
+                    </div>
 
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Tax (8%)</span>
-                      <span className="font-medium text-gray-900">${tax.toFixed(2)}</span>
+                      <span className="text-gray-600">Tax</span>
+                      <span className="font-medium text-gray-900">TBD</span>
                     </div>
 
                     <div className="border-t border-gray-200 pt-2">
                       <div className="flex justify-between">
-                        <span className="text-base font-semibold text-gray-900">Total</span>
-                        <span className="text-lg font-bold text-gray-900">${total.toFixed(2)}</span>
+                        <span className="text-base font-semibold text-gray-900">Items Total</span>
+                        <span className="text-lg font-bold text-gray-900">${subtotal.toFixed(2)}</span>
                       </div>
+                      <p className="text-xs text-gray-500 mt-1">*Final total will include shipping and tax</p>
                     </div>
                   </div>
                 </div>
 
-                {/* Checkout Button */}
+                {/* Place Order Button */}
                 <div className="pt-4">
                   <button
-                    onClick={handleCheckout}
+                    onClick={handlePlaceOrder}
                     className="w-full py-3 px-4 bg-purple-600 text-white rounded-md text-base font-semibold hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    disabled={isCheckoutLoading || items.length === 0 || !shippingAddress || ratesLoading || !selectedShippingRate}
+                    disabled={isSubmittingOrder || regularItems.length === 0 || !shippingAddress}
                   >
-                    {isCheckoutLoading ? (
+                    {isSubmittingOrder ? (
                       <span className="flex items-center justify-center">
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Processing...
+                        Placing Order...
                       </span>
                     ) : (
-                      `Checkout - $${total.toFixed(2)}`
+                      `Place Order`
                     )}
                   </button>
 
@@ -784,13 +755,42 @@ export default function CartPage() {
                     </p>
                   )}
 
-                  {shippingAddress && !selectedShippingRate && !ratesLoading && (
-                    <p className="mt-2 text-xs text-gray-500 text-center">
-                      Please select a shipping option to continue
+                  <div className="mt-3 bg-blue-50 border border-blue-200 rounded-md p-3">
+                    <p className="text-xs text-blue-800 font-medium">📋 Order Process</p>
+                    <p className="text-xs text-blue-700">
+                      After placing your order, we'll review it and contact you via email with order acceptance, payment details, and shipping information.
                     </p>
-                  )}
+                  </div>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Success Popup */}
+        {showSuccessPopup && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg p-8 w-full max-w-md text-center">
+              <div className="mb-4">
+                <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100">
+                  <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+              </div>
+
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Order Placed Successfully!</h3>
+              <p className="text-sm text-gray-600 mb-1">Order Number: {orderNumber}</p>
+              <p className="text-sm text-gray-600 mb-6">
+                You will be notified on your email about order acceptance, payment and shipping details. Thank you!
+              </p>
+
+              <button
+                onClick={handleCloseSuccessPopup}
+                className="w-full py-2 px-4 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700"
+              >
+                Continue Shopping
+              </button>
             </div>
           </div>
         )}

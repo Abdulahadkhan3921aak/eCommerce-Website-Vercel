@@ -75,6 +75,8 @@ const ProductUnitSchema: Schema = new Schema({
   },
 }, { _id: false });
 
+const VALID_CATEGORIES = ['ring', 'earring', 'bracelet', 'necklace'] as const;
+
 const ProductSchema: Schema = new Schema({
   name: {
     type: String,
@@ -97,8 +99,13 @@ const ProductSchema: Schema = new Schema({
   }],
   category: {
     type: String,
-    required: [true, 'Product category is required'],
-    enum: ['necklaces', 'bracelets', 'rings', 'earrings', 'custom'],
+    required: true,
+    enum: {
+      values: VALID_CATEGORIES,
+      message: 'Category must be one of: ring, earring, bracelet, necklace (singular forms only)'
+    },
+    lowercase: true,
+    trim: true
   },
   sizes: [String],
   price: {
@@ -197,6 +204,26 @@ ProductSchema.pre('save', function (next) {
 ProductSchema.pre('save', function (next) {
   if (this.name && !this.slug) {
     this.slug = this.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  }
+  next();
+});
+
+// Pre-save middleware to normalize category
+ProductSchema.pre('save', function (next) {
+  if (this.isModified('category')) {
+    const category = this.category?.toLowerCase().trim();
+
+    // Convert plural to singular if needed
+    const pluralToSingular: Record<string, string> = {
+      'rings': 'ring',
+      'earrings': 'earring',
+      'bracelets': 'bracelet',
+      'necklaces': 'necklace'
+    };
+
+    if (category && pluralToSingular[category]) {
+      this.category = pluralToSingular[category];
+    }
   }
   next();
 });
