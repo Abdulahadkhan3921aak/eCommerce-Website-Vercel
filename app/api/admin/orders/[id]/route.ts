@@ -3,6 +3,7 @@ import { auth, currentUser } from '@clerk/nextjs/server'
 import dbConnect from '@/lib/mongodb'
 import Order from '@/lib/models/Order'
 import { requirePermission } from '@/lib/auth/adminCheck'
+import crypto from 'crypto'
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
     try {
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     }
 }
 
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
         const { userId } = await auth()
         const user = await currentUser()
@@ -42,8 +43,65 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
         await dbConnect()
 
-        const orderId = params.id
+        const resolvedParams = await params
+        const orderId = resolvedParams.id
         const updateData = await request.json()
+
+        // Handle special actions
+        if (updateData.action === 'generate_payment_link') {
+            const { generateJWTToken } = await import('@/lib/utils/tokenUtils')
+
+            const paymentToken = generateJWTToken(orderId, '7d')
+            const expiryDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+
+            const order = await Order.findByIdAndUpdate(
+                orderId,
+                {
+                    paymentToken,
+                    paymentTokenExpiry: expiryDate,
+                    updatedAt: new Date()
+                },
+                { new: true, runValidators: true }
+            )
+
+            if (!order) {
+                return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+            }
+
+            const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://yourdomain.com'
+            const paymentLink = `${baseUrl}/payment/${orderId}?token=${paymentToken}`
+
+            return NextResponse.json({
+                success: true,
+                paymentToken,
+                paymentLink,
+                expiryDate,
+                order
+            })
+        }
+
+        // Handle status updates with enhanced workflow
+        if (updateData.status) {
+            const validTransitions = {
+                'pending_approval': ['accepted', 'shipping_calculated', 'rejected', 'removed'],
+                'accepted': ['processing', 'shipped', 'rejected', 'removed'],
+                'shipping_calculated': ['processing', 'shipped', 'rejected', 'removed'],
+                'processing': ['shipped', 'delivered'],
+                'shipped': ['delivered']
+            }
+
+            const currentOrder = await Order.findById(orderId)
+            if (!currentOrder) {
+                return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+            }
+
+            const allowedStatuses = validTransitions[currentOrder.status as keyof typeof validTransitions] || []
+            if (!allowedStatuses.includes(updateData.status)) {
+                return NextResponse.json({
+                    error: `Cannot transition from ${currentOrder.status} to ${updateData.status}`
+                }, { status: 400 })
+            }
+        }
 
         const order = await Order.findByIdAndUpdate(
             orderId,

@@ -115,6 +115,10 @@ export default function AdminOrdersPage() {
     const [loadingRates, setLoadingRates] = useState(false)
     const [applyingRate, setApplyingRate] = useState(false)
 
+    // Add new state for enhanced workflow
+    const [confirmationInput, setConfirmationInput] = useState('')
+    const [pendingAction, setPendingAction] = useState<{ type: 'reject' | 'remove', orderId: string } | null>(null)
+
     const { showAlert, showConfirm, showPopup } = usePopup()
 
     useEffect(() => {
@@ -208,30 +212,90 @@ export default function AdminOrdersPage() {
     }
 
     const handleRejectClick = (orderId: string) => {
+        setPendingAction({ type: 'reject', orderId })
+        setConfirmationInput('')
         showPopup({
             title: 'Reject Order',
-            message: 'Please provide a reason for rejecting this order:',
+            message: 'Please provide a reason and type "reject" to confirm:',
             type: 'confirm',
             component: (
-                <textarea
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    rows={3}
-                    placeholder="Rejection reason..."
-                    id="rejection-reason"
-                    required
-                />
+                <div className="space-y-3">
+                    <textarea
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        rows={3}
+                        placeholder="Rejection reason..."
+                        id="rejection-reason"
+                        required
+                    />
+                    <input
+                        type="text"
+                        value={confirmationInput}
+                        onChange={(e) => setConfirmationInput(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                        placeholder="Type 'reject' to confirm"
+                    />
+                </div>
             ),
             actions: [
                 {
                     label: 'Cancel',
-                    action: () => { },
+                    action: () => {
+                        setPendingAction(null)
+                        setConfirmationInput('')
+                    },
                     variant: 'secondary'
                 },
                 {
                     label: 'Reject Order',
                     action: () => {
                         const reason = (document.getElementById('rejection-reason') as HTMLTextAreaElement)?.value
-                        if (reason) handleRejectOrder(orderId, reason)
+                        if (reason) handleRejectRemoveOrder(orderId, 'reject', reason)
+                    },
+                    variant: 'danger'
+                }
+            ]
+        })
+    }
+
+    const handleRemoveClick = (orderId: string) => {
+        setPendingAction({ type: 'remove', orderId })
+        setConfirmationInput('')
+        showPopup({
+            title: 'Remove Order',
+            message: 'Please provide a reason and type "remove" to confirm:',
+            type: 'confirm',
+            component: (
+                <div className="space-y-3">
+                    <textarea
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        rows={3}
+                        placeholder="Removal reason..."
+                        id="removal-reason"
+                        required
+                    />
+                    <input
+                        type="text"
+                        value={confirmationInput}
+                        onChange={(e) => setConfirmationInput(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                        placeholder="Type 'remove' to confirm"
+                    />
+                </div>
+            ),
+            actions: [
+                {
+                    label: 'Cancel',
+                    action: () => {
+                        setPendingAction(null)
+                        setConfirmationInput('')
+                    },
+                    variant: 'secondary'
+                },
+                {
+                    label: 'Remove Order',
+                    action: () => {
+                        const reason = (document.getElementById('removal-reason') as HTMLTextAreaElement)?.value
+                        if (reason) handleRejectRemoveOrder(orderId, 'remove', reason)
                     },
                     variant: 'danger'
                 }
@@ -465,19 +529,172 @@ export default function AdminOrdersPage() {
         return !['shipped', 'delivered', 'rejected', 'cancelled'].includes(order.status)
     }
 
-    if (loading) {
-        return (
-            <div className="min-h-screen bg-white">
-                <Header />
-                <div className="max-w-7xl mx-auto px-4 py-8">
-                    <div className="text-center">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
-                        <p className="mt-4 text-lg text-gray-600">Loading orders...</p>
-                    </div>
-                </div>
-            </div>
-        )
+    const canAcceptOrder = (order: Order) => {
+        return order.status === 'pending_approval' && order.paymentStatus === 'pending_approval'
     }
+
+    const canCalculateShipping = (order: Order) => {
+        return order.status === 'pending_approval'
+    }
+
+    const canGeneratePaymentLink = (order: Order) => {
+        return ['accepted', 'shipping_calculated'].includes(order.status)
+    }
+
+    const hasShippingLabel = (order: Order) => {
+        return order.shippoShipment?.labelUrl && order.status === 'shipping_calculated'
+    }
+
+    const shouldDisableAccept = (order: Order) => {
+        return order.status === 'shipping_calculated'
+    }
+
+    const handleGeneratePaymentLink = async (orderId: string) => {
+        showPopup({
+            title: 'Generate Payment Link',
+            message: 'Would you like to send the payment link to the customer via email?',
+            type: 'confirm',
+            component: (
+                <div className="space-y-3">
+                    <div className="flex items-center space-x-2">
+                        <input
+                            type="checkbox"
+                            id="send-email"
+                            defaultChecked={true}
+                            className="rounded border-gray-300 text-purple-600 shadow-sm focus:border-purple-300 focus:ring focus:ring-purple-200 focus:ring-opacity-50"
+                        />
+                        <label htmlFor="send-email" className="text-sm text-gray-700">
+                            Send payment link via email to customer
+                        </label>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                        The payment link will be valid for 7 days and include a complete order summary.
+                    </p>
+                </div>
+            ),
+            actions: [
+                {
+                    label: 'Cancel',
+                    action: () => { },
+                    variant: 'secondary'
+                },
+                {
+                    label: 'Generate Link',
+                    action: async () => {
+                        const sendEmail = (document.getElementById('send-email') as HTMLInputElement)?.checked ?? true
+                        await generatePaymentLinkForOrder(orderId, sendEmail)
+                    },
+                    variant: 'primary'
+                }
+            ]
+        })
+    }
+
+    const generatePaymentLinkForOrder = async (orderId: string, sendEmail: boolean) => {
+        try {
+            const response = await fetch(`/api/admin/orders/${orderId}/create-payment-link`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sendEmail })
+            })
+
+            const data = await response.json()
+
+            if (response.ok) {
+                showAlert(data.message, 'success')
+
+                // Show the payment link in a popup for admin reference
+                showPopup({
+                    title: 'Payment Link Generated',
+                    message: 'Payment link has been created successfully.',
+                    type: 'info',
+                    component: (
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Payment Link:
+                                </label>
+                                <div className="flex items-center space-x-2">
+                                    <input
+                                        type="text"
+                                        value={data.paymentLink}
+                                        readOnly
+                                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm"
+                                    />
+                                    <button
+                                        onClick={() => navigator.clipboard.writeText(data.paymentLink)}
+                                        className="px-3 py-2 bg-purple-600 text-white rounded-md text-sm hover:bg-purple-700"
+                                    >
+                                        Copy
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="text-sm text-gray-600">
+                                <p><strong>Expires:</strong> {new Date(data.expiryDate).toLocaleString()}</p>
+                                <p><strong>Email Sent:</strong> {data.emailSent ? 'Yes' : 'No'}</p>
+                            </div>
+                        </div>
+                    ),
+                    actions: [
+                        {
+                            label: 'Close',
+                            action: () => { },
+                            variant: 'primary'
+                        }
+                    ]
+                })
+
+                fetchOrders() // Refresh orders
+            } else {
+                showAlert(`Error: ${data.error}`, 'error')
+            }
+        } catch (error) {
+            console.error('Error generating payment link:', error)
+            showAlert('Failed to generate payment link', 'error')
+        }
+    }
+
+    const handleDownloadShippingLabel = (order: Order) => {
+        if (order.shippoShipment?.labelUrl) {
+            window.open(order.shippoShipment.labelUrl, '_blank')
+        } else {
+            showAlert('No shipping label available', 'warning')
+        }
+    }
+
+    const handleRejectRemoveOrder = async (orderId: string, action: 'reject' | 'remove', reason: string) => {
+        if (confirmationInput !== action || !reason.trim()) {
+            showAlert(`Please provide a reason and type "${action}" to confirm`, 'warning')
+            return
+        }
+
+        try {
+            const endpoint = action === 'reject' ? 'reject' : 'remove'
+            const response = await fetch(`/api/admin/orders/${orderId}/${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    rejectionReason: reason,
+                    removalReason: reason
+                })
+            })
+
+            if (response.ok) {
+                showAlert(`Order ${action}ed successfully!`, 'success')
+                fetchOrders()
+                setPendingAction(null)
+                setConfirmationInput('')
+            } else {
+                const error = await response.json()
+                showAlert(`Error: ${error.error}`, 'error')
+            }
+        } catch (error) {
+            console.error(`Error ${action}ing order:`, error)
+            showAlert(`Failed to ${action} order`, 'error')
+        }
+    }
+
+    // ...existing code...
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -571,71 +788,89 @@ export default function AdminOrdersPage() {
                                 <div className="px-6 py-3 bg-gray-50 border-b border-gray-200">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center space-x-2">
-                                            {/* Shipping Requirements Warning */}
-                                            {order.status === 'pending_approval' && !canApproveOrder(order) && (
-                                                <div className="flex items-center px-3 py-2 bg-yellow-50 border border-yellow-200 rounded-md">
-                                                    <svg className="w-4 h-4 text-yellow-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                                                    </svg>
-                                                    <span className="text-sm text-yellow-800">
-                                                        Missing: {getShippingRequirementStatus(order).missing.join(', ')}
-                                                    </span>
-                                                </div>
-                                            )}
-
-                                            {/* Primary Actions */}
-                                            {canApproveOrder(order) && (
+                                            {/* Primary Action Buttons */}
+                                            {canAcceptOrder(order) && !shouldDisableAccept(order) && (
                                                 <button
-                                                    onClick={() => handleApproveClick(order._id)}
+                                                    onClick={() => handleAcceptClick(order._id)}
                                                     className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                                                 >
                                                     <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                                     </svg>
-                                                    Approve
+                                                    Accept Order
                                                 </button>
                                             )}
-                                            {order.status === 'pending_approval' && !canApproveOrder(order) && (
-                                                <button
-                                                    disabled
-                                                    className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-400 bg-gray-100 cursor-not-allowed"
-                                                    title="Complete shipping setup before approval"
-                                                >
-                                                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                                    </svg>
-                                                    Approve (Shipping Required)
-                                                </button>
-                                            )}
-                                            {canRejectOrder(order) && (
-                                                <button
-                                                    onClick={() => handleRejectClick(order._id)}
-                                                    className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                                                >
-                                                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                                    </svg>
-                                                    Reject
-                                                </button>
-                                            )}
-                                        </div>
 
-                                        <div className="flex items-center space-x-2">
-                                            {/* Secondary Actions */}
-                                            {canUpdateShipping(order) && (
+                                            {canCalculateShipping(order) && (
                                                 <button
                                                     onClick={() => handleOpenShippingModal(order)}
-                                                    className={`inline-flex items-center px-3 py-2 border text-sm leading-4 font-medium rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 ${!canApproveOrder(order) && order.status === 'pending_approval'
-                                                        ? 'border-orange-300 text-orange-700 bg-orange-50 hover:bg-orange-100 focus:ring-orange-500'
-                                                        : 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50 focus:ring-indigo-500'
-                                                        }`}
+                                                    className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                                                 >
                                                     <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                                                     </svg>
-                                                    {!canApproveOrder(order) && order.status === 'pending_approval' ? 'Setup Shipping' : 'Shipping'}
+                                                    Calculate Shipping
                                                 </button>
                                             )}
+
+                                            {hasShippingLabel(order) && (
+                                                <button
+                                                    onClick={() => handleDownloadShippingLabel(order)}
+                                                    className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+                                                >
+                                                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                    </svg>
+                                                    Download Label
+                                                </button>
+                                            )}
+
+                                            {shouldDisableAccept(order) && (
+                                                <span className="inline-flex items-center px-3 py-2 text-sm leading-4 font-medium text-gray-500 bg-gray-100 rounded-md">
+                                                    Accept (Disabled - Shipping Calculated)
+                                                </span>
+                                            )}
+
+                                            {/* Destructive Actions */}
+                                            {['pending_approval', 'accepted', 'shipping_calculated'].includes(order.status) && (
+                                                <>
+                                                    <button
+                                                        onClick={() => handleRejectClick(order._id)}
+                                                        className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                                                    >
+                                                        <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                        </svg>
+                                                        Reject
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleRemoveClick(order._id)}
+                                                        className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-red-800 hover:bg-red-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                                                    >
+                                                        <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                        </svg>
+                                                        Remove
+                                                    </button>
+                                                </>
+                                            )}
+                                        </div>
+
+                                        <div className="flex items-center space-x-2">
+                                            {/* Payment Link Generation */}
+                                            {canGeneratePaymentLink(order) && (
+                                                <button
+                                                    onClick={() => handleGeneratePaymentLink(order._id)}
+                                                    className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                                >
+                                                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v2a2 2 0 002 2z" />
+                                                    </svg>
+                                                    Send Payment Link
+                                                </button>
+                                            )}
+
+                                            {/* Secondary Actions */}
                                             <button
                                                 onClick={() => {
                                                     setSelectedOrder(order)
@@ -644,7 +879,7 @@ export default function AdminOrdersPage() {
                                                 className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                                             >
                                                 <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 012 2z" />
                                                 </svg>
                                                 Email
                                             </button>
