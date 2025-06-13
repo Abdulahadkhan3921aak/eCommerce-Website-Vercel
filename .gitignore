@@ -140,3 +140,5 @@ others/
 
 # clerk configuration (can include secrets)
 /.clerk/
+
+commit-message.txt
