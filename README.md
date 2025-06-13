@@ -10,27 +10,115 @@ A modern, full-featured eCommerce website built with Next.js for Butterflies Bea
 - **Featured Products**: Showcase highlighted items on the homepage
 - **Product Details**: Detailed product pages with images, pricing, and specifications
 - **Shopping Cart**: Add, remove, and manage items with real-time notifications
-- **Custom Orders**: Personalized jewelry design requests with detailed specifications
+- **Custom Products**: Create custom jewelry with image uploads, engraving options, and flexible pricing
 - **User Authentication**: Secure login and registration with Clerk
 - **Address Management**: Save and validate shipping addresses with Shippo integration
+- **Email Communication**: Professional HTML email templates for order updates and notifications
+- **Customer Orders**: Comprehensive order tracking and status updates for customers
 
 ### eCommerce Features
 
 - **Multiple Product Variants**: Support for different sizes, colors, and options (units system)
 - **Dynamic Pricing**: Sale prices, bulk discounts, and varied pricing per variant
+- **Custom Product Integration**: Custom jewelry items can be added to regular cart alongside standard products
+- **Engraving Services**: Automatic $15 surcharge for custom engraving on any item
 - **Order Management**: Complete order processing workflow with admin approval system
 - **Shipping Integration**: Shippo API for address validation and shipping calculations
 - **Inventory Management**: Stock tracking and availability status
-- **Direct Order Processing**: Manual order review and approval system for personalized service
+- **Flexible Order Processing**: Manual order review and approval system with custom item editing capabilities
+- **Email Automation**: Branded email templates for all customer communications
+- **Admin-Controlled Custom Pricing**: Customers submit custom requests; only admins can set pricing
+- **Customer Order Tracking**: Real-time order status updates with detailed progress information
+
+### Customer Order Experience
+
+- **Order History**: Customers can view all their orders with detailed status information
+- **Status Tracking**: Real-time updates including pending approval, accepted, processing, shipped, and delivered
+- **Rejection Handling**: Clear communication when orders are rejected with detailed reasons
+- **Custom Order Support**: Special handling and display for custom jewelry orders
+- **Email Notifications**: Automated updates throughout the order lifecycle
+- **Responsive Design**: Mobile-optimized order viewing experience
+
+### Order Status Management
+
+**Customer-Visible Statuses:**
+
+- **Pending Approval**: Order submitted, awaiting admin review
+- **Accepted**: Order approved and being prepared
+- **Processing**: Payment captured, order being fulfilled
+- **Shipped**: Order dispatched with tracking information
+- **Delivered**: Order completed successfully
+- **Rejected**: Order declined with detailed explanation
+- **Cancelled**: Order cancelled by customer or admin
+- **Removed**: Order removed from system (administrative action)
+- **Pending Payment**: Awaiting customer payment
+- **Payment Adjustment**: Order total changed, new payment required
+
+**Admin Workflow:**
+
+- Review and approve/reject orders
+- Set custom pricing for personalized items
+- Manage shipping and tracking
+- Handle payment processing and adjustments
+- Send branded email communications
+
+### Custom Product Features
+
+- **Image Upload**: Customers can upload reference images for custom designs
+- **Cart Integration**: Custom products are added to regular shopping cart (not separate custom orders)
+- **Engraving Surcharge**: Automatic $15 per item surcharge for engraving services
+- **Admin Pricing Control**: Only administrators can set custom product pricing during order review
+- **Flexible Design Options**: Customers specify requirements; admins provide quotes and pricing
+- **Unit-Based Structure**: Products are organized by color-size combinations, each with individual pricing and images
+- **Tax Management**: Configurable tax percentage (0-100%) applied to all product units with bulk tax operations
+
+### Product Structure
+
+**New Unit-Based Design:**
+
+- Products no longer have direct prices or images
+- Each product consists of multiple units (color-size combinations)
+- Each unit has its own price, stock, and images
+- Product display uses the first unit's image and pricing information
+- Individual unit sales can be configured separately from product-wide sales
+- Tax percentage is applied at the product level and calculated for each unit
+- Automatic tax calculation support with bulk tax management operations
 
 ### Order Processing Workflow
 
-1. **Cart Management**: Users add items and provide shipping address
+1. **Cart Management**: Users add both regular and custom items to unified shopping cart
 2. **Address Validation**: Real-time address validation using Shippo API
-3. **Order Placement**: Direct order creation without immediate payment
-4. **Admin Review**: Orders require admin approval and pricing confirmation
-5. **Customer Notification**: Email updates throughout the process
-6. **Payment Processing**: Secure payment collection after order approval
+3. **Order Placement**: Direct order creation with mixed product types (custom items at $0 base price)
+4. **Admin Review**: Orders require admin approval with ability to edit custom item pricing
+5. **Custom Item Pricing**: Administrators set pricing for custom products during order review
+6. **Customer Notification**: Professional HTML email updates throughout the process
+7. **Payment Processing**: Secure payment collection after order approval and final pricing
+
+### Email Communication System
+
+The website features a comprehensive email system with professionally designed HTML templates:
+
+- **Order Accepted Email**: Beautifully formatted confirmation when orders are approved
+- **Payment Link Email**: Secure payment notifications with branded styling and regeneration support
+- **Shipping Update Email**: Professional shipping status and tracking information
+- **Payment Success Email**: Celebration-style confirmation with complete order details
+- **Tax Adjustment Email**: Clear notifications for any order total changes
+
+**Payment Link Management:**
+
+- **Initial Generation**: Secure payment links with 24-hour expiration
+- **Regeneration**: Admins can regenerate payment links if customers miss emails or links expire
+- **Security**: Old payment tokens are automatically invalidated when new ones are generated
+- **Email Notifications**: Both initial and regenerated links are sent via professional email templates
+
+All emails feature:
+
+- **Consistent Branding**: Purple gradient headers with Butterflies Beading logo
+- **Mobile Responsive**: Optimized for both desktop and mobile email clients
+- **Professional Design**: Clean, modern styling with proper typography
+- **Security Features**: Clear payment security information and expiration notices
+- **Detailed Information**: Complete order summaries, shipping details, and next steps
+- **Fallback Support**: Plain text versions for clients that don't support HTML
 
 ### Custom Order System
 

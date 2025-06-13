@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Header from '@/components/Header'
 import Link from 'next/link'
-import { Product } from '@/models/Product'
 import EnhancedProductForm, { EnhancedProductFormData } from '@/components/admin/EnhancedProductForm'
 import { usePopup } from '@/lib/contexts/PopupContext'
 
@@ -13,7 +12,6 @@ export default function EditProductPage() {
   const params = useParams()
   const { showAlert } = usePopup()
 
-  // Extract id properly from params with better type safety
   const id = typeof params?.id === 'string' ? params.id : Array.isArray(params?.id) ? params.id[0] : null
 
   const [product, setProduct] = useState<EnhancedProductFormData | null>(null)
@@ -21,18 +19,13 @@ export default function EditProductPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    console.log('Params received:', params) // Debug log
-    console.log('Extracted ID:', id) // Debug log
-
     if (id && id !== 'undefined' && id !== 'null') {
       const fetchProduct = async () => {
         try {
           setLoading(true)
           setError(null)
-          console.log('Fetching product with ID:', id) // Debug log
 
           const response = await fetch(`/api/products/${id}`)
-          console.log('Response status:', response.status) // Debug log
 
           if (!response.ok) {
             const errorData = await response.json().catch(() => ({}))
@@ -40,26 +33,26 @@ export default function EditProductPage() {
           }
 
           const data = await response.json()
-          console.log('Product data received:', data) // Debug log
 
-          // Transform the data to match our enhanced form structure
+          // Transform the data to match our form structure
           const transformedData: EnhancedProductFormData = {
             _id: data._id,
             name: data.name || '',
             description: data.description || '',
-            category: data.category || '',
-            price: data.price || 0,
-            stock: data.stock || 0,
-            images: data.images || [],
+            category: data.category || 'ring',
+            colors: data.colors || [],
+            sizes: data.sizes || [],
             units: data.units || [],
             saleConfig: data.saleConfig || {
               isOnSale: false,
               saleType: 'percentage',
               saleValue: 0
-            }
+            },
+            tax: data.tax || 0,
+            featured: data.featured || false,
+            slug: data.slug || ''
           }
 
-          console.log('Transformed data:', transformedData) // Debug log
           setProduct(transformedData)
         } catch (err: any) {
           console.error('Error fetching product:', err)
@@ -70,39 +63,28 @@ export default function EditProductPage() {
       }
       fetchProduct()
     } else {
-      console.error('Invalid product ID:', id, 'from params:', params)
       setError('Invalid product ID')
       setLoading(false)
     }
-  }, [id, params])
+  }, [id])
 
   const handleSubmit = async (data: EnhancedProductFormData) => {
     if (!id || id === 'undefined' || id === 'null') {
-      console.error('No valid product ID available for update. ID:', id)
       showAlert('Error: Invalid product ID', 'error')
       return
     }
 
     try {
-      console.log('Updating product with ID:', id) // Debug log
-      console.log('Update data:', data) // Debug log
-
       const response = await fetch(`/api/products/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       })
 
-      console.log('Update response status:', response.status) // Debug log
-
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        console.error('Update error response:', errorData)
         throw new Error(errorData.error || errorData.details || `HTTP ${response.status}: Failed to update product`)
       }
-
-      const result = await response.json()
-      console.log('Update successful:', result)
 
       showAlert('Product updated successfully!', 'success')
       router.push('/admin/products')

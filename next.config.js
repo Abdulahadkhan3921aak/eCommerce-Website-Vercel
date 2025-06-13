@@ -43,6 +43,18 @@ const nextConfig = {
         hostname: 'placeimg.com',
         port: '',
         pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'res.cloudinary.com',
+        port: '',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'deyaabj8s.cloudinary.com',
+        port: '',
+        pathname: '/**',
       }
     ],
   },

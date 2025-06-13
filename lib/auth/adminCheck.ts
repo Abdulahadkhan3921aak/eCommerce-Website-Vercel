@@ -139,6 +139,11 @@ export function validateShippingRequirements(order: any): { isValid: boolean; er
     errors.push('A shipping rate must be selected before approval')
   }
 
+  // Check if tax has been explicitly set (can be zero, but must be explicitly set)
+  if (!order.isTaxSet) {
+    errors.push('Tax amount must be set before generating payment (can be $0.00)')
+  }
+
   return {
     isValid: errors.length === 0,
     errors

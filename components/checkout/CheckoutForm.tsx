@@ -246,7 +246,12 @@ export default function CheckoutForm({ cartItems, userAddress, userInfo }: Check
 
             if (response.ok) {
                 const { orderId, paymentUrl } = await response.json();
-                window.location.href = paymentUrl;
+                // Update the success URL to redirect to our custom payment success page
+                const updatedPaymentUrl = paymentUrl.replace(
+                    '/checkout/success',
+                    '/payment/success'
+                );
+                window.location.href = updatedPaymentUrl;
             } else {
                 throw new Error('Failed to create order');
             }

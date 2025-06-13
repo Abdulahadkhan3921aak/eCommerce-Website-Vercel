@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { SignInButton, SignedIn, SignedOut, UserButton } from "@clerk/nextjs"
+import { SignInButton, SignedIn, SignedOut, UserButton, useUser } from "@clerk/nextjs"
 import { useCart } from '@/lib/contexts/CartContext'
 import CartNotification from './ui/CartNotification'
 
@@ -25,6 +25,7 @@ export default function Header() {
   const [isHydrated, setIsHydrated] = useState(false)
   const { getTotalItems } = useCart()
   const pathname = usePathname()
+  const { isSignedIn } = useUser()
 
   useEffect(() => {
     fetchUserRole()
@@ -59,6 +60,8 @@ export default function Header() {
   }
 
   const isAdmin = userRole?.role === 'admin' || userRole?.role === 'owner'
+  const isCustomer = userRole?.role === 'customer'
+  const shouldShowMyOrders = isSignedIn && isCustomer && !loading
 
   const toggleMobileMenu = () => {
     setIsMobileMenuOpen(prev => !prev)
@@ -92,6 +95,11 @@ export default function Header() {
               <Link href="/custom" className={getLinkClasses('/custom')}>
                 Custom Orders
               </Link>
+              {shouldShowMyOrders && (
+                <Link href="/orders" className={getLinkClasses('/orders')}>
+                  My Orders
+                </Link>
+              )}
               <Link href="/contact" className={getLinkClasses('/contact')}>
                 Contact Us
               </Link>
@@ -168,6 +176,15 @@ export default function Header() {
               >
                 Custom Orders
               </Link>
+              {shouldShowMyOrders && (
+                <Link
+                  href="/orders"
+                  className={`block px-3 py-2 rounded-md text-base ${getLinkClasses('/orders')}`}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  My Orders
+                </Link>
+              )}
               <Link
                 href="/contact"
                 className={`block px-3 py-2 rounded-md text-base ${getLinkClasses('/contact')}`}

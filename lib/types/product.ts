@@ -1,234 +1,446 @@
-export interface SaleConfig {
+export const PRODUCT_CATEGORIES = [
+    'ring',
+    'earring',
+    'bracelet',
+    'necklace'
+] as const
+
+export type ProductCategory = typeof PRODUCT_CATEGORIES[number]
+
+// Helper function to normalize category (convert plural to singular)
+export const normalizeCategory = (category: string): ProductCategory | null => {
+    if (!category || typeof category !== 'string') {
+        return null
+    }
+
+    const normalized = category.toLowerCase().trim()
+
+    // Handle plural forms
+    const categoryMap: Record<string, ProductCategory> = {
+        'ring': 'ring',
+        'rings': 'ring',
+        'earring': 'earring',
+        'earrings': 'earring',
+        'bracelet': 'bracelet',
+        'bracelets': 'bracelet',
+        'necklace': 'necklace',
+        'necklaces': 'necklace'
+    }
+
+    return categoryMap[normalized] || null
+}
+
+// Helper function to validate category
+export const isValidCategory = (category: string): category is ProductCategory => {
+    return PRODUCT_CATEGORIES.includes(category as ProductCategory)
+}
+
+export interface ProductUnit {
+    _id?: string
+    unitId: string // Auto-generated: color-size combination
+    color: string
+    size: string
+    price: number
+    stock: number
+    images: string[]
+    saleConfig: {
+        isOnSale: boolean
+        saleType: 'percentage' | 'amount'
+        saleValue: number
+    }
+    sku?: string
+}
+
+export interface ProductSaleConfig {
     isOnSale: boolean
     saleType: 'percentage' | 'amount'
     saleValue: number
 }
 
-export interface ProductUnit {
+export interface ProductFormData {
     _id?: string
-    unitId?: string
-    size?: string
-    color?: string
+    name: string
+    description: string
+    category: ProductCategory
+    colors: string[]
+    sizes: string[]
+    units: ProductUnit[]
+    saleConfig: ProductSaleConfig
+    tax?: number // Tax percentage (0-100)
+    featured?: boolean
+    slug?: string
+}
+
+// Add Product interface for compatibility
+export interface Product {
+    _id: string
+    name: string
+    description: string
+    category: ProductCategory
     price: number
-    stock: number
+    salePrice?: number
     images: string[]
-    saleConfig: SaleConfig
-    sku?: string
+    colors?: string[]
+    sizes?: string[]
+    units?: ProductUnit[]
+    saleConfig?: ProductSaleConfig
+    tax?: number
+    featured?: boolean
+    slug?: string
+    stock?: number
+    totalStock?: number
+    rating?: number
+    reviews?: number
+    weight?: number
+    dimensions?: { length: number; width: number; height: number }
+    createdAt?: Date
+    updatedAt?: Date
 }
 
-export type ProductCategory = 'ring' | 'earring' | 'bracelet' | 'necklace'
-
-// Category display names and validation
-export const PRODUCT_CATEGORIES: Record<ProductCategory, string> = {
-    ring: 'Ring',
-    earring: 'Earring',
-    bracelet: 'Bracelet',
-    necklace: 'Necklace'
+// Helper function to generate unit ID
+export const generateUnitId = (color: string, size: string): string => {
+    return `${color.toLowerCase().replace(/\s+/g, '-')}-${size.toLowerCase().replace(/\s+/g, '-')}`
 }
 
-// Helper function to validate category
-export function isValidCategory(category: string): category is ProductCategory {
-    return Object.keys(PRODUCT_CATEGORIES).includes(category)
-}
-
-// Helper function to normalize category (convert plural to singular)
-export function normalizeCategory(category: string): ProductCategory | null {
-    const normalized = category.toLowerCase().trim()
-
-    // Direct matches (singular forms)
-    if (isValidCategory(normalized)) {
-        return normalized as ProductCategory
+// Helper function to get product display price (from first unit)
+export const getProductDisplayPrice = (product: Product): number => {
+    if (product.units && product.units.length > 0) {
+        const firstUnit = product.units[0]
+        return getUnitEffectivePrice(product, firstUnit)
     }
 
-    // Convert plural to singular
-    const pluralToSingular: Record<string, ProductCategory> = {
-        'rings': 'ring',
-        'earrings': 'earring',
-        'bracelets': 'bracelet',
-        'necklaces': 'necklace'
+    // Legacy product pricing
+    if (product.salePrice && product.salePrice < product.price) {
+        return product.salePrice
     }
 
-    return pluralToSingular[normalized] || null
+    return product.price || 0
 }
 
-// Calculate the effective price for a unit considering both product-level and unit-level sales
-export function getUnitEffectivePrice(product: Product, unit: ProductUnit): number {
-    if (!unit) return product.price
-
-    // Check if unit has its own sale configuration
+// Helper function to get effective price for a specific unit
+export const getUnitEffectivePrice = (product: Product, unit: ProductUnit): number => {
+    // First check unit-level sale
     if (unit.saleConfig?.isOnSale && unit.saleConfig.saleValue > 0) {
-        let salePrice = unit.price
-
-        if (unit.saleConfig.saleType === 'percentage' && unit.saleConfig.saleValue <= 100) {
-            salePrice = unit.price * (1 - unit.saleConfig.saleValue / 100)
-        } else if (unit.saleConfig.saleType === 'amount') {
-            salePrice = unit.price - unit.saleConfig.saleValue
+        if (unit.saleConfig.saleType === 'percentage') {
+            const discount = unit.price * (unit.saleConfig.saleValue / 100)
+            return Math.max(0, unit.price - discount)
+        } else {
+            return Math.max(0, unit.price - unit.saleConfig.saleValue)
         }
-
-        return Math.max(0, parseFloat(salePrice.toFixed(2)))
     }
 
-    // Check if product has global sale configuration that applies to units
+    // Then check product-level sale
     if (product.saleConfig?.isOnSale && product.saleConfig.saleValue > 0) {
-        let salePrice = unit.price
-
-        if (product.saleConfig.saleType === 'percentage' && product.saleConfig.saleValue <= 100) {
-            salePrice = unit.price * (1 - product.saleConfig.saleValue / 100)
-        } else if (product.saleConfig.saleType === 'amount') {
-            salePrice = unit.price - product.saleConfig.saleValue
+        if (product.saleConfig.saleType === 'percentage') {
+            const discount = unit.price * (product.saleConfig.saleValue / 100)
+            return Math.max(0, unit.price - discount)
+        } else {
+            return Math.max(0, unit.price - product.saleConfig.saleValue)
         }
-
-        return Math.max(0, parseFloat(salePrice.toFixed(2)))
     }
 
     return unit.price
 }
 
-// Calculate sale price for a product (legacy products without units)
-export function getProductDisplayPrice(product: Product): number {
-    if (!product) return 0
-
-    // If product has units, this function shouldn't be used
-    if (product.units && product.units.length > 0) {
-        console.warn('getProductDisplayPrice called on product with units, use getUnitEffectivePrice instead')
-        return product.price
-    }
-
-    // Check for existing salePrice field first (for backward compatibility)
-    if (typeof product.salePrice === 'number' && product.salePrice > 0 && product.salePrice < product.price) {
-        return product.salePrice
-    }
-
-    // Calculate from saleConfig
-    if (product.saleConfig?.isOnSale && product.saleConfig.saleValue > 0) {
-        let salePrice = product.price
-
-        if (product.saleConfig.saleType === 'percentage' && product.saleConfig.saleValue <= 100) {
-            salePrice = product.price * (1 - product.saleConfig.saleValue / 100)
-        } else if (product.saleConfig.saleType === 'amount') {
-            salePrice = product.price - product.saleConfig.saleValue
-        }
-
-        return Math.max(0, parseFloat(salePrice.toFixed(2)))
-    }
-
-    return product.price
-}
-
-// Get price range for products with units
-export function getProductPriceRange(product: Product): { min: number; max: number } {
+// Helper function to get price range for a product
+export const getProductPriceRange = (product: Product): { min: number; max: number; isSinglePrice: boolean } => {
     if (!product.units || product.units.length === 0) {
         const effectivePrice = getProductDisplayPrice(product)
-        return { min: effectivePrice, max: effectivePrice }
+        return { min: effectivePrice, max: effectivePrice, isSinglePrice: true }
     }
 
     const prices = product.units.map(unit => getUnitEffectivePrice(product, unit))
+    const min = Math.min(...prices)
+    const max = Math.max(...prices)
+
     return {
-        min: Math.min(...prices),
-        max: Math.max(...prices)
+        min,
+        max,
+        isSinglePrice: min === max || product.units.length === 1
     }
 }
 
-// Check if a unit is on sale
-export function isUnitOnSale(product: Product, unit: ProductUnit): boolean {
-    if (unit.saleConfig?.isOnSale) return true
-    if (product.saleConfig?.isOnSale) return true
+// Helper function to check if any unit or product is on sale
+export const hasAnySale = (product: Product): boolean => {
+    // Check product-level sale
+    if (product.saleConfig?.isOnSale) {
+        return true
+    }
+
+    // Check legacy product sale price
+    if (product.salePrice && product.salePrice < product.price) {
+        return true
+    }
+
+    // Check unit-level sales
+    if (product.units && product.units.length > 0) {
+        return product.units.some(unit =>
+            unit.saleConfig?.isOnSale && unit.saleConfig.saleValue > 0
+        )
+    }
+
     return false
 }
 
-// Check if product has any sales
-export function hasAnySale(product: Product): boolean {
-    if (product.saleConfig?.isOnSale) return true
-    if (product.units?.some(unit => unit.saleConfig?.isOnSale)) return true
+// Helper function to check if a specific unit is on sale
+export const isUnitOnSale = (product: Product, unit: ProductUnit): boolean => {
+    // Check unit-level sale first
+    if (unit.saleConfig?.isOnSale && unit.saleConfig.saleValue > 0) {
+        return true
+    }
+
+    // Check product-level sale
+    if (product.saleConfig?.isOnSale && product.saleConfig.saleValue > 0) {
+        return true
+    }
+
     return false
 }
 
-// Get sale information for display
-export function getSaleInfo(product: Product, unit?: ProductUnit) {
-    if (unit?.saleConfig?.isOnSale) {
+// Helper function to get sale information
+export const getSaleInfo = (product: Product, unit?: ProductUnit): {
+    isOnSale: boolean
+    saleType?: 'percentage' | 'amount'
+    saleValue?: number
+    source?: 'unit' | 'product'
+} | null => {
+    // Check unit-level sale first
+    if (unit?.saleConfig?.isOnSale && unit.saleConfig.saleValue > 0) {
         return {
             isOnSale: true,
             saleType: unit.saleConfig.saleType,
             saleValue: unit.saleConfig.saleValue,
-            originalPrice: unit.price,
-            salePrice: getUnitEffectivePrice(product, unit)
+            source: 'unit'
         }
     }
 
-    if (product.saleConfig?.isOnSale) {
-        const basePrice = unit ? unit.price : product.price
+    // Check product-level sale
+    if (product.saleConfig?.isOnSale && product.saleConfig.saleValue > 0) {
         return {
             isOnSale: true,
             saleType: product.saleConfig.saleType,
             saleValue: product.saleConfig.saleValue,
-            originalPrice: basePrice,
-            salePrice: unit ? getUnitEffectivePrice(product, unit) : getProductDisplayPrice(product)
+            source: 'product'
+        }
+    }
+
+    // Check legacy product sale
+    if (product.salePrice && product.salePrice < product.price) {
+        const discount = product.price - product.salePrice
+        return {
+            isOnSale: true,
+            saleType: 'amount',
+            saleValue: discount,
+            source: 'product'
         }
     }
 
     return null
 }
 
-// Get the best available image from a product (product images first, then unit images)
-export function getProductDisplayImage(product: Product): string {
+// Helper function to get product display image (from first unit or product)
+export const getProductDisplayImage = (product: Product): string => {
     // First try product-level images
-    if (product.images && Array.isArray(product.images) && product.images.length > 0) {
-        const validImage = product.images.find(img =>
-            img && typeof img === 'string' && img.trim().length > 0
-        );
-        if (validImage) {
-            const cleanUrl = validImage.trim();
-            if (cleanUrl.startsWith('http') || cleanUrl.startsWith('/')) {
-                return cleanUrl;
-            }
+    if (product.images && product.images.length > 0) {
+        return product.images[0]
+    }
+
+    // Then try first unit's images
+    if (product.units && product.units.length > 0) {
+        const firstUnit = product.units[0]
+        if (firstUnit.images && firstUnit.images.length > 0) {
+            return firstUnit.images[0]
         }
     }
 
-    // Then try unit-level images
-    if (product.units && Array.isArray(product.units) && product.units.length > 0) {
-        for (const unit of product.units) {
-            if (unit.images && Array.isArray(unit.images) && unit.images.length > 0) {
-                const validImage = unit.images.find(img =>
-                    img && typeof img === 'string' && img.trim().length > 0
-                );
-                if (validImage) {
-                    const cleanUrl = validImage.trim();
-                    if (cleanUrl.startsWith('http') || cleanUrl.startsWith('/')) {
-                        return cleanUrl;
-                    }
-                }
-            }
-        }
-    }
-
-    return '/placeholder-image.png';
+    return '/images/placeholder.jpg'
 }
 
-// Get all available images from a product (combining product and unit images)
-export function getAllProductImages(product: Product): string[] {
-    const allImages: string[] = [];
+// Helper function to get all product images
+export const getAllProductImages = (product: Product): string[] => {
+    const allImages: string[] = []
 
-    // Add product images
-    if (product.images && Array.isArray(product.images)) {
-        const validProductImages = product.images.filter(img =>
-            img && typeof img === 'string' && img.trim().length > 0
-        );
-        allImages.push(...validProductImages);
+    // Add product-level images
+    if (product.images) {
+        allImages.push(...product.images)
     }
 
-    // Add unit images
-    if (product.units && Array.isArray(product.units)) {
+    // Add unit-level images
+    if (product.units) {
         product.units.forEach(unit => {
-            if (unit.images && Array.isArray(unit.images)) {
-                const validUnitImages = unit.images.filter(img =>
-                    img && typeof img === 'string' && img.trim().length > 0
-                );
-                allImages.push(...validUnitImages);
+            if (unit.images) {
+                allImages.push(...unit.images)
             }
-        });
+        })
     }
 
-    // Remove duplicates and return
-    const uniqueImages = [...new Set(allImages)];
-    return uniqueImages.length > 0 ? uniqueImages : ['/placeholder-image.png'];
+    return [...new Set(allImages)] // Remove duplicates
+}
+
+// Helper function to calculate tax amount for a given price
+export const calculateTaxAmount = (price: number, taxPercentage: number): number => {
+    return price * (taxPercentage || 0) / 100
+}
+
+// Helper function to calculate total price with tax
+export const calculatePriceWithTax = (price: number, taxPercentage: number): number => {
+    return price + calculateTaxAmount(price, taxPercentage)
+}
+
+// Helper function to validate tax percentage
+export const isValidTaxPercentage = (tax: number): boolean => {
+    return tax >= 0 && tax <= 100
+}
+
+// Helper function to check if product has varied pricing
+export const hasVariedPricing = (product: Product): boolean => {
+    const priceRange = getProductPriceRange(product)
+    return !priceRange.isSinglePrice
+}
+
+// Helper function to get total stock from units
+export const getTotalStock = (product: Product): number => {
+    if (product.units && product.units.length > 0) {
+        return product.units.reduce((total, unit) => total + (unit.stock || 0), 0)
+    }
+    return product.totalStock || product.stock || 0
+}
+
+// Helper function to check if product is out of stock
+export const isOutOfStock = (product: Product): boolean => {
+    return getTotalStock(product) === 0
+}
+
+// Helper function to check if product has low stock
+export const hasLowStock = (product: Product, threshold: number = 5): boolean => {
+    const totalStock = getTotalStock(product)
+    return totalStock > 0 && totalStock <= threshold
+}
+
+// Helper function to get available colors for a product
+export const getAvailableColors = (product: Product): string[] => {
+    if (product.units && product.units.length > 0) {
+        return [...new Set(product.units.map(unit => unit.color).filter(Boolean))]
+    }
+    return product.colors || []
+}
+
+// Helper function to get available sizes for a product
+export const getAvailableSizes = (product: Product): string[] => {
+    if (product.units && product.units.length > 0) {
+        return [...new Set(product.units.map(unit => unit.size).filter(Boolean))]
+    }
+    return product.sizes || []
+}
+
+// Helper function to get units by color
+export const getUnitsByColor = (product: Product, color: string): ProductUnit[] => {
+    if (!product.units) return []
+    return product.units.filter(unit => unit.color === color)
+}
+
+// Helper function to get units by size
+export const getUnitsBySize = (product: Product, size: string): ProductUnit[] => {
+    if (!product.units) return []
+    return product.units.filter(unit => unit.size === size)
+}
+
+// Helper function to find specific unit by color and size
+export const findUnit = (product: Product, color: string, size: string): ProductUnit | null => {
+    if (!product.units) return null
+    return product.units.find(unit => unit.color === color && unit.size === size) || null
+}
+
+// Helper function to validate product data
+export const validateProduct = (product: Partial<Product>): string[] => {
+    const errors: string[] = []
+
+    if (!product.name?.trim()) {
+        errors.push('Product name is required')
+    }
+
+    if (!product.description?.trim()) {
+        errors.push('Product description is required')
+    }
+
+    if (!product.category || !isValidCategory(product.category)) {
+        errors.push('Valid product category is required')
+    }
+
+    if (product.tax !== undefined && !isValidTaxPercentage(product.tax)) {
+        errors.push('Tax percentage must be between 0 and 100')
+    }
+
+    return errors
+}
+
+// Helper function to validate product unit
+export const validateProductUnit = (unit: Partial<ProductUnit>): string[] => {
+    const errors: string[] = []
+
+    if (!unit.unitId?.trim()) {
+        errors.push('Unit ID is required')
+    }
+
+    if (!unit.color?.trim()) {
+        errors.push('Unit color is required')
+    }
+
+    if (!unit.size?.trim()) {
+        errors.push('Unit size is required')
+    }
+
+    if (typeof unit.price !== 'number' || unit.price <= 0) {
+        errors.push('Unit price must be a positive number')
+    }
+
+    if (typeof unit.stock !== 'number' || unit.stock < 0) {
+        errors.push('Unit stock must be a non-negative number')
+    }
+
+    if (!unit.images || !Array.isArray(unit.images) || unit.images.length === 0) {
+        errors.push('At least one unit image is required')
+    }
+
+    return errors
+}
+
+// Helper function to format price for display
+export const formatPrice = (price: number, includeCurrency: boolean = true): string => {
+    const formatted = price.toFixed(2)
+    return includeCurrency ? `$${formatted}` : formatted
+}
+
+// Helper function to format price range for display
+export const formatPriceRange = (product: Product, includeCurrency: boolean = true): string => {
+    const priceRange = getProductPriceRange(product)
+
+    if (priceRange.isSinglePrice) {
+        return formatPrice(priceRange.min, includeCurrency)
+    }
+
+    return `${formatPrice(priceRange.min, includeCurrency)} - ${formatPrice(priceRange.max, includeCurrency)}`
+}
+
+// Helper function to calculate savings amount and percentage
+export const calculateSavings = (originalPrice: number, salePrice: number): { amount: number; percentage: number } => {
+    const amount = originalPrice - salePrice
+    const percentage = (amount / originalPrice) * 100
+
+    return {
+        amount: Math.max(0, amount),
+        percentage: Math.max(0, percentage)
+    }
+}
+
+// Helper function to get unit effective price with tax
+export const getUnitEffectivePriceWithTax = (product: Product, unit: ProductUnit): number => {
+    const basePrice = getUnitEffectivePrice(product, unit)
+    return calculatePriceWithTax(basePrice, product.tax || 0)
+}
+
+// Helper function to get display price with tax
+export const getProductDisplayPriceWithTax = (product: Product): number => {
+    const basePrice = getProductDisplayPrice(product)
+    return calculatePriceWithTax(basePrice, product.tax || 0)
 }

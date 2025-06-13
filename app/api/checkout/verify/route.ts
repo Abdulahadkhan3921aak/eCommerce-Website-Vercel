@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth, currentUser } from '@clerk/nextjs/server'
 import Stripe from 'stripe'
 import dbConnect from '@/lib/mongodb'
 import Order from '@/lib/models/Order'
 import Product from '@/lib/models/Product'
+import { extractCustomerEmail } from '@/utils/email-collection'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
 
@@ -107,13 +108,28 @@ export async function POST(request: NextRequest) {
         };
       }
 
+      const user = await currentUser()
+      const customerEmail = extractCustomerEmail(user)
 
-      // Stock reduction and label creation are moved to admin approval.
-      // No FedEx/Shippo label creation here.
+      if (!customerEmail) {
+        return NextResponse.json({
+          error: 'Customer email is required for order processing. Please ensure your email is verified.'
+        }, { status: 400 })
+      }
 
       await order.save()
 
-      // TODO: Send "Order Received, Pending Approval" email to customer
+      // Add order received email to history
+      order.emailHistory.push({
+        sentBy: 'system',
+        type: 'order_received',
+        subject: `Order ${order.orderNumber} Received - Pending Approval`,
+        content: `Your order ${order.orderNumber} has been received and is pending approval. We will review your order and contact you within 24 hours.`,
+        sentAt: new Date()
+      })
+
+      await order.save()
+
       // TODO: Trigger Inngest events for "order received"
     }
 

@@ -10,14 +10,13 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
     try {
-        const { userId: adminUserId } = await auth() // Renamed for clarity
+        const { userId: adminUserId } = await auth()
         const adminUser = await currentUser()
 
         if (!adminUserId || !adminUser) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
         }
 
-        // Check if user is admin
         const userRole = adminUser?.privateMetadata?.role as string
         if (userRole !== 'admin') {
             return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
@@ -26,15 +25,20 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         const { adminNotes } = await request.json()
         const orderId = params.id
 
-        await dbConnect
+        await dbConnect()
 
         const order = await Order.findById(orderId)
         if (!order) {
             return NextResponse.json({ error: 'Order not found' }, { status: 404 })
         }
 
-        if (order.status !== 'pending_approval' || order.paymentStatus !== 'pending_approval') {
-            return NextResponse.json({ error: 'Order is not pending approval or payment status is incorrect.' }, { status: 400 })
+        // This endpoint now requires order to be 'accepted' and have shipping details
+        if (order.status !== 'accepted') {
+            return NextResponse.json({ error: 'Order must be accepted first before approval processing.' }, { status: 400 })
+        }
+
+        if (!order.shippoShipment?.labelUrl) {
+            return NextResponse.json({ error: 'Shipping label must be generated before processing payment.' }, { status: 400 })
         }
 
         // Capture the payment
@@ -46,7 +50,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         try {
             paymentIntent = await stripe.paymentIntents.capture(order.stripePaymentIntentId);
             if (paymentIntent.status !== 'succeeded') {
-                order.status = 'rejected'; // Or a new status like 'payment_failed'
+                order.status = 'rejected';
                 order.paymentStatus = 'failed';
                 order.adminApproval = {
                     ...order.adminApproval,
@@ -54,10 +58,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
                     rejectedBy: adminUserId,
                     rejectedAt: new Date(),
                     rejectionReason: `Payment capture failed: ${paymentIntent.last_payment_error?.message || 'Unknown Stripe error'}`,
-                    adminNotes: adminNotes || order.adminApproval?.adminNotes || '', // Preserve existing notes
+                    adminNotes: adminNotes || order.adminApproval?.adminNotes || '',
                 };
                 await order.save();
-                // TODO: Send payment failed email
                 return NextResponse.json({ error: `Payment capture failed: ${paymentIntent.last_payment_error?.message || 'Unknown Stripe error'}` }, { status: 400 });
             }
         } catch (stripeError: any) {
@@ -70,99 +73,50 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
                 rejectedBy: adminUserId,
                 rejectedAt: new Date(),
                 rejectionReason: `Payment capture error: ${stripeError.message}`,
-                adminNotes: adminNotes || order.adminApproval?.adminNotes || '', // Preserve existing notes
+                adminNotes: adminNotes || order.adminApproval?.adminNotes || '',
             };
             await order.save();
-            // TODO: Send payment failed email
             return NextResponse.json({ error: `Payment capture error: ${stripeError.message}` }, { status: 400 });
         }
-
 
         // Update inventory
         for (const item of order.items) {
             await Product.findByIdAndUpdate(
                 item.productId,
-                { $inc: { stock: -item.quantity } }, // Deduct stock
+                { $inc: { stock: -item.quantity } },
                 { new: true }
             );
         }
 
-        // Create Shippo shipping label if a rate was selected
-        let shippoLabelInfo = null;
-        if (order.shippoShipment && order.shippoShipment.rateId) {
-            try {
-                const transactionRequest = {
-                    rate: order.shippoShipment.rateId,
-                    labelFileType: "PDF_4x6" as "PDF_4x6", // Or "PDF"
-                    async: false,
-                };
-                const transactionResult = await ShippoService.createShipmentLabel(transactionRequest);
-
-                if (transactionResult.status === 'SUCCESS') {
-                    shippoLabelInfo = {
-                        trackingNumber: transactionResult.trackingNumber,
-                        labelUrl: transactionResult.labelUrl,
-                        transactionId: transactionResult.objectId,
-                        // Extract carrier and service info from rate if available
-                        carrier: order.shippoShipment.carrier,
-                        serviceLevelName: order.shippoShipment.serviceLevelName,
-                    };
-                    order.shippoShipment = {
-                        ...order.shippoShipment,
-                        ...shippoLabelInfo,
-                    };
-                    order.status = 'processing'; // Order is now being processed for shipment
-                } else {
-                    console.warn('Shippo label creation was not immediately successful:', transactionResult.messages);
-                    order.adminApproval.adminNotes = `${adminNotes || order.adminApproval?.adminNotes || ''}\nShippo label warning: ${transactionResult.messages?.map(m => m.text).join(', ')}`;
-                }
-            } catch (error) {
-                console.error('Shippo shipment label creation failed:', error);
-                order.adminApproval.adminNotes = `${adminNotes || order.adminApproval?.adminNotes || ''}\nShippo label creation error: ${error instanceof Error ? error.message : 'Unknown error'}`;
-            }
-        } else {
-            order.status = 'approved'; // No shipping info to create label, just approved
-        }
-
-
-        // Update order
-        order.paymentStatus = 'captured'; // Or 'paid'
+        // Update order status
+        order.status = 'processing';
+        order.paymentStatus = 'captured';
         order.adminApproval = {
             ...order.adminApproval,
             isApproved: true,
             approvedBy: adminUserId,
             approvedAt: new Date(),
-            adminNotes: adminNotes || order.adminApproval?.adminNotes || '', // Ensure adminNotes are saved/updated
+            adminNotes: adminNotes || order.adminApproval?.adminNotes || '',
         };
-
-        if (shippoLabelInfo && order.status !== 'processing') { // If label created, status should be processing or shipped
-            order.status = 'processing'; // If not already set
-        } else if (!shippoLabelInfo && order.status === 'pending_approval') {
-            order.status = 'approved'; // If no label, just approved
-        }
-
 
         // Add email to history
         order.emailHistory.push({
             sentBy: adminUserId,
-            subject: 'Order Approved and Processing',
-            content: `Your order ${order.orderNumber} has been approved and is now being processed. You will receive another email when it ships.`,
-            type: 'approval',
+            subject: `Order ${order.orderNumber} - Payment Processed`,
+            content: `Payment has been processed for your order ${order.orderNumber}. Your order is now being prepared for shipment.`,
+            type: 'payment_processed',
             sentAt: new Date()
         });
 
         await order.save();
 
-        // TODO: Send approval email to customer (with items, shipping info if available)
-        // Example: await sendOrderApprovedEmail(order);
-
         return NextResponse.json({
             success: true,
-            order: order, // Send back the updated order
-            shippoLabelInfo: shippoLabelInfo // Send back label info if created
+            order: order,
+            message: 'Payment processed successfully. Order is now being prepared for shipment.'
         });
     } catch (error) {
-        console.error('Error approving order:', error);
+        console.error('Error processing order:', error);
         // Attempt to find the order and update its status to reflect the error if possible
         try {
             const orderId = params.id;
@@ -182,7 +136,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         }
 
         return NextResponse.json({
-            error: 'Failed to approve order',
+            error: 'Failed to process order',
             details: error instanceof Error ? error.message : 'Unknown error'
         }, { status: 500 });
     }

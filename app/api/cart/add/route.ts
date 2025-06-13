@@ -26,23 +26,23 @@ export async function POST(request: NextRequest) {
             cart = new Cart({ clerkId: userId, items: [] })
         }
 
-        // Generate consistent cart item ID
+        // Generate consistent cart item ID - handle both regular and custom products
         const cartItemId = `${item.productId}_${item.unitId || 'default'}`
 
         // Check if item already exists in cart using the same ID format
         const existingItemIndex = cart.items.findIndex(cartItem => {
-            const existingId = `${cartItem.productId.toString()}_${cartItem.unitId || 'default'}`
+            const existingId = `${cartItem.productId}_${cartItem.unitId || 'default'}`
             return existingId === cartItemId
         })
 
         if (existingItemIndex > -1) {
             // Update quantity of existing item
             cart.items[existingItemIndex].quantity += item.quantity
-            cart.items[existingItemIndex].stock = item.stock || cart.items[existingItemIndex].stock
+            cart.items[existingItemIndex].availableStock = item.stock || cart.items[existingItemIndex].availableStock
         } else {
             // Add new item to cart with proper field mapping
-            cart.items.push({
-                productId: item.productId,
+            const newCartItem = {
+                productId: item.productId, // This can now be a string for custom items
                 unitId: item.unitId,
                 name: item.name,
                 price: item.price,
@@ -54,10 +54,13 @@ export async function POST(request: NextRequest) {
                 category: item.category,
                 size: item.size,
                 color: item.color,
-                stock: item.stock || 0,
+                availableStock: item.stock || 0,
                 weight: item.weight,
-                dimensions: item.dimensions
-            })
+                dimensions: item.dimensions,
+                customDetails: item.customDetails // Add custom details for custom items
+            }
+
+            cart.items.push(newCartItem)
         }
 
         cart.updatedAt = new Date()

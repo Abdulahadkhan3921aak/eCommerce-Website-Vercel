@@ -54,9 +54,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         // Add email to history
         order.emailHistory.push({
             sentBy: userId,
-            subject: 'Order Rejected',
+            subject: `Order ${order.orderNumber} Rejected`,
             content: `Your order ${order.orderNumber} has been rejected. Reason: ${rejectionReason}`,
-            type: 'rejection'
+            type: 'rejection',
+            sentAt: new Date()
         })
 
         await order.save()

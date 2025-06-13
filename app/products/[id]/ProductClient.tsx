@@ -56,7 +56,8 @@ export default function ProductClient({ product }: Props) {
       return {
         originalPrice: null,
         effectivePrice: priceRange.min,
-        priceRange,
+        priceRange: priceRange.isSinglePrice ? null : priceRange,
+        singlePrice: priceRange.isSinglePrice ? priceRange.min : null,
         isOnSale: hasAnySale(product),
         saleInfo: null
       };
@@ -224,6 +225,24 @@ export default function ProductClient({ product }: Props) {
                   </p>
                   {priceInfo.isOnSale && (
                     <p className="text-sm text-red-600 font-medium mt-1">Sale prices included</p>
+                  )}
+                </div>
+              ) : priceInfo.singlePrice ? (
+                <div className="flex items-center gap-3">
+                  {priceInfo.isOnSale ? (
+                    <>
+                      <p className="text-2xl text-gray-500 line-through">
+                        ${(product.units && product.units.length > 0 ? product.units[0].price : product.price).toFixed(2)}
+                      </p>
+                      <p className="text-3xl text-red-600 font-bold">
+                        ${priceInfo.singlePrice.toFixed(2)}
+                      </p>
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                        Sale
+                      </span>
+                    </>
+                  ) : (
+                    <p className="text-3xl text-gray-900">${priceInfo.singlePrice.toFixed(2)}</p>
                   )}
                 </div>
               ) : (

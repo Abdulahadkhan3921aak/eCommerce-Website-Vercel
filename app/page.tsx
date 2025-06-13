@@ -115,7 +115,7 @@ export default async function Home() {
               {featuredProducts && featuredProducts.length > 0 ? (
                 featuredProducts.slice(0, 6).map((product) => {
                   const priceRange = getProductPriceRange(product);
-                  const hasVariedPricing = priceRange.min !== priceRange.max;
+                  const hasVariedPricing = !priceRange.isSinglePrice;
                   const productOnSale = hasAnySale(product);
 
                   // Better image handling for home page
@@ -242,7 +242,7 @@ export default async function Home() {
                                 <span className="text-lg sm:text-xl font-bold text-red-600">${displayPrice.salePrice.toFixed(2)}</span>
                               </>
                             ) : (
-                              <span className="text-lg sm:text-xl font-bold text-gray-900">${displayPrice.price.toFixed(2)}</span>
+                              <span className="text-lg sm:text-xl font-bold text-gray-900">${priceRange.min.toFixed(2)}</span>
                             )}
                           </div>
                           <Link

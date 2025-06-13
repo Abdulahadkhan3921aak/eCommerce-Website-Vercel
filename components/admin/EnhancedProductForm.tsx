@@ -3,82 +3,38 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import ImageUpload from './ImageUpload'
-import UnitManager from './UnitManager'
-import { PRODUCT_CATEGORIES, type ProductCategory } from '@/lib/types/product'
-
-export interface ProductUnit {
-    _id?: string
-    name: string
-    size?: string
-    color?: string
-    price: number
-    stock: number
-    images: string[] // Only used for color variants, empty for size-only variants
-    saleConfig: {
-        isOnSale: boolean
-        saleType: 'percentage' | 'amount'
-        saleValue: number
-    }
-    unitId?: string
-    sku?: string
-    // New properties to clarify the unit type
-    isColorVariant?: boolean // true if this unit represents a color variation
-    isSizeVariant?: boolean  // true if this unit represents a size variation
-}
-
-// Update interface to extend the unified ProductFormData
-export interface EnhancedProductFormData {
-    _id?: string
-    name: string
-    description: string
-    category: ProductCategory // Use the strict type
-    price: number
-    stock: number
-    images: string[]
-    units: ProductUnit[]
-    saleConfig: {
-        isOnSale: boolean
-        saleType: 'percentage' | 'amount'
-        saleValue: number
-    }
-    // Add compatibility fields
-    sizes?: string[]
-    colors?: string[]
-    featured?: boolean
-    slug?: string
-    salePrice?: number
-}
+import { PRODUCT_CATEGORIES, type ProductCategory, type ProductFormData, type ProductUnit, generateUnitId } from '@/lib/types/product'
 
 interface EnhancedProductFormProps {
-    initialData?: EnhancedProductFormData
-    onSubmit: (data: EnhancedProductFormData) => Promise<void>
+    initialData?: ProductFormData
+    onSubmit: (data: ProductFormData) => Promise<void>
     isEditing?: boolean
 }
 
 export default function EnhancedProductForm({ initialData, onSubmit, isEditing = false }: EnhancedProductFormProps) {
-    const [formData, setFormData] = useState<EnhancedProductFormData>({
+    const [formData, setFormData] = useState<ProductFormData>({
         name: '',
         description: '',
-        category: 'ring', // Default to first category
-        price: 0,
-        stock: 0,
-        images: [],
+        category: 'ring',
+        colors: [],
+        sizes: [],
         units: [],
         saleConfig: {
             isOnSale: false,
             saleType: 'percentage',
             saleValue: 0
         },
-        // Default values for compatibility
-        sizes: [],
-        colors: [],
+        tax: 0,
         featured: false,
         slug: ''
     })
+
     const [loading, setLoading] = useState(false)
     const [errors, setErrors] = useState<string[]>([])
+    const [newColor, setNewColor] = useState('')
+    const [newSize, setNewSize] = useState('')
 
-    // Updated category options - only singular forms
+    // Category options
     const categoryOptions: Array<{ value: ProductCategory; label: string }> = [
         { value: 'ring', label: 'Ring' },
         { value: 'earring', label: 'Earring' },
@@ -86,23 +42,63 @@ export default function EnhancedProductForm({ initialData, onSubmit, isEditing =
         { value: 'necklace', label: 'Necklace' }
     ]
 
+    // Predefined options for quick selection
+    const commonColors = ['Black', 'White', 'Silver', 'Gold', 'Rose Gold', 'Blue', 'Red', 'Green', 'Purple', 'Pink']
+    const commonSizes = {
+        ring: ['5', '5.5', '6', '6.5', '7', '7.5', '8', '8.5', '9', '9.5', '10'],
+        bracelet: ['XS', 'S', 'M', 'L', 'XL'],
+        necklace: ['14"', '16"', '18"', '20"', '22"', '24"'],
+        earring: ['Small', 'Medium', 'Large']
+    }
+
     useEffect(() => {
         if (initialData) {
-            setFormData({
-                ...initialData,
-                // Generate slug if missing
-                slug: initialData.slug || initialData.name?.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '') || '',
-                sizes: initialData.sizes || [],
-                colors: initialData.colors || [],
-                featured: initialData.featured || false
-            })
+            setFormData(initialData)
         }
     }, [initialData])
+
+    // Auto-generate units when colors or sizes change
+    useEffect(() => {
+        if (formData.colors.length > 0 && formData.sizes.length > 0) {
+            const newUnits: ProductUnit[] = []
+
+            formData.colors.forEach(color => {
+                formData.sizes.forEach(size => {
+                    const unitId = generateUnitId(color, size)
+
+                    // Check if unit already exists (for editing)
+                    const existingUnit = formData.units.find(unit => unit.unitId === unitId)
+
+                    if (existingUnit) {
+                        newUnits.push(existingUnit)
+                    } else {
+                        // Create new unit with default values
+                        newUnits.push({
+                            unitId,
+                            color,
+                            size,
+                            price: 0,
+                            stock: 0,
+                            images: [],
+                            saleConfig: {
+                                isOnSale: false,
+                                saleType: 'percentage',
+                                saleValue: 0
+                            }
+                        })
+                    }
+                })
+            })
+
+            setFormData(prev => ({ ...prev, units: newUnits }))
+        } else {
+            setFormData(prev => ({ ...prev, units: [] }))
+        }
+    }, [formData.colors, formData.sizes])
 
     const validateForm = (): string[] => {
         const errors: string[] = []
 
-        // Basic product validation
         if (!formData.name?.trim()) {
             errors.push('Product name is required')
         }
@@ -115,82 +111,28 @@ export default function EnhancedProductForm({ initialData, onSubmit, isEditing =
             errors.push('Product category is required')
         }
 
-        // Price validation
-        const price = parseFloat(formData.price as string)
-        if (isNaN(price) || price < 0) {
-            errors.push('Product price must be a valid positive number')
+        if (formData.colors.length === 0) {
+            errors.push('At least one color is required')
         }
 
-        // Sale price validation (if provided)
-        if (formData.salePrice && formData.salePrice !== '') {
-            const salePrice = parseFloat(formData.salePrice as string)
-            if (isNaN(salePrice) || salePrice < 0) {
-                errors.push('Sale price must be a valid positive number')
-            } else if (salePrice >= price) {
-                errors.push('Sale price must be less than regular price')
-            }
+        if (formData.sizes.length === 0) {
+            errors.push('At least one size is required')
         }
 
-        // Images validation
-        if (!formData.images || formData.images.length === 0) {
-            errors.push('At least one product image is required')
-        }
-
-        // Units validation (if product has units)
-        if (formData.units && formData.units.length > 0) {
-            formData.units.forEach((unit, index) => {
-                if (!unit.unitId?.trim()) {
-                    errors.push(`Unit ${index + 1}: Unit ID is required`)
-                }
-
-                const unitPrice = parseFloat(unit.price as string)
-                if (isNaN(unitPrice) || unitPrice < 0) {
-                    errors.push(`Unit ${index + 1}: Price must be a valid positive number`)
-                }
-
-                if (unit.salePrice && unit.salePrice !== '') {
-                    const unitSalePrice = parseFloat(unit.salePrice as string)
-                    if (isNaN(unitSalePrice) || unitSalePrice < 0) {
-                        errors.push(`Unit ${index + 1}: Sale price must be a valid positive number`)
-                    } else if (unitSalePrice >= unitPrice) {
-                        errors.push(`Unit ${index + 1}: Sale price must be less than regular price`)
-                    }
-                }
-
-                const unitStock = parseInt(unit.stock as string, 10)
-                if (isNaN(unitStock) || unitStock < 0) {
-                    errors.push(`Unit ${index + 1}: Stock must be a valid non-negative number`)
-                }
-            })
-        } else {
-            // Non-unit product stock validation
-            const stock = parseInt(formData.stock as string, 10)
-            if (isNaN(stock) || stock < 0) {
-                errors.push('Stock must be a valid non-negative number')
+        // Validate units
+        formData.units.forEach((unit, index) => {
+            if (!unit.price || unit.price <= 0) {
+                errors.push(`Unit ${unit.color} - ${unit.size}: Price is required and must be greater than 0`)
             }
-        }
 
-        // Dimensions validation (if provided)
-        if (formData.dimensions) {
-            const { length, width, height } = formData.dimensions
-            if (length && (isNaN(parseFloat(length as string)) || parseFloat(length as string) < 0)) {
-                errors.push('Length must be a valid positive number')
+            if (unit.stock < 0) {
+                errors.push(`Unit ${unit.color} - ${unit.size}: Stock cannot be negative`)
             }
-            if (width && (isNaN(parseFloat(width as string)) || parseFloat(width as string) < 0)) {
-                errors.push('Width must be a valid positive number')
-            }
-            if (height && (isNaN(parseFloat(height as string)) || parseFloat(height as string) < 0)) {
-                errors.push('Height must be a valid positive number')
-            }
-        }
 
-        // Weight validation (if provided)
-        if (formData.weight && formData.weight !== '') {
-            const weight = parseFloat(formData.weight as string)
-            if (isNaN(weight) || weight < 0) {
-                errors.push('Weight must be a valid positive number')
+            if (!unit.images || unit.images.length === 0) {
+                errors.push(`Unit ${unit.color} - ${unit.size}: At least one image is required`)
             }
-        }
+        })
 
         return errors
     }
@@ -202,29 +144,13 @@ export default function EnhancedProductForm({ initialData, onSubmit, isEditing =
             setLoading(true)
             setErrors([])
 
-            // Validate form
             const validationErrors = validateForm()
             if (validationErrors.length > 0) {
                 setErrors(validationErrors)
                 return
             }
 
-            // Prepare form data for submission
-            const submissionData = {
-                ...formData,
-                price: parseFloat(formData.price as string),
-                stock: formData.units && formData.units.length > 0 ? undefined : parseInt(formData.stock as string, 10),
-                units: formData.units && formData.units.length > 0 ? formData.units.map(unit => ({
-                    ...unit,
-                    price: parseFloat(unit.price as string),
-                    stock: parseInt(unit.stock as string, 10),
-                })) : undefined,
-            }
-
-            console.log('Form submission data:', submissionData) // Debug log
-
-            // Call the onSubmit handler passed from parent
-            await onSubmit(submissionData)
+            await onSubmit(formData)
 
         } catch (error) {
             console.error('Form submission error:', error)
@@ -235,9 +161,8 @@ export default function EnhancedProductForm({ initialData, onSubmit, isEditing =
         }
     }
 
-    const handleInputChange = (field: keyof EnhancedProductFormData, value: any) => {
+    const handleInputChange = (field: keyof ProductFormData, value: any) => {
         setFormData(prev => ({ ...prev, [field]: value }))
-        // Clear errors when user starts typing
         if (errors.length > 0) {
             setErrors([])
         }
@@ -250,12 +175,52 @@ export default function EnhancedProductForm({ initialData, onSubmit, isEditing =
         }))
     }
 
-    const handleUnitsChange = (units: ProductUnit[]) => {
-        setFormData(prev => ({ ...prev, units }))
+    const addColor = (color: string) => {
+        if (color && !formData.colors.includes(color)) {
+            setFormData(prev => ({ ...prev, colors: [...prev.colors, color] }))
+        }
     }
 
-    const handleImagesChange = (images: string[]) => {
-        setFormData(prev => ({ ...prev, images }))
+    const removeColor = (color: string) => {
+        setFormData(prev => ({
+            ...prev,
+            colors: prev.colors.filter(c => c !== color)
+        }))
+    }
+
+    const addSize = (size: string) => {
+        if (size && !formData.sizes.includes(size)) {
+            setFormData(prev => ({ ...prev, sizes: [...prev.sizes, size] }))
+        }
+    }
+
+    const removeSize = (size: string) => {
+        setFormData(prev => ({
+            ...prev,
+            sizes: prev.sizes.filter(s => s !== size)
+        }))
+    }
+
+    const updateUnit = (unitId: string, field: keyof ProductUnit, value: any) => {
+        setFormData(prev => ({
+            ...prev,
+            units: prev.units.map(unit =>
+                unit.unitId === unitId
+                    ? { ...unit, [field]: value }
+                    : unit
+            )
+        }))
+    }
+
+    const updateUnitSaleConfig = (unitId: string, field: string, value: any) => {
+        setFormData(prev => ({
+            ...prev,
+            units: prev.units.map(unit =>
+                unit.unitId === unitId
+                    ? { ...unit, saleConfig: { ...unit.saleConfig, [field]: value } }
+                    : unit
+            )
+        }))
     }
 
     return (
@@ -298,11 +263,9 @@ export default function EnhancedProductForm({ initialData, onSubmit, isEditing =
                                 id="name"
                                 value={formData.name}
                                 onChange={(e) => handleInputChange('name', e.target.value)}
-                                className={`mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2 text-gray-900 ${errors.name ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'focus:border-purple-500 focus:ring-purple-500'
-                                    }`}
+                                className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2 text-gray-900 focus:border-purple-500 focus:ring-purple-500"
                                 placeholder="Enter product name"
                             />
-                            {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}
                         </div>
 
                         <div>
@@ -314,17 +277,14 @@ export default function EnhancedProductForm({ initialData, onSubmit, isEditing =
                                 id="category"
                                 value={formData.category}
                                 onChange={(e) => handleInputChange('category', e.target.value as ProductCategory)}
-                                className={`mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm rounded-md text-gray-900 ${errors.category ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'focus:border-purple-500 focus:ring-purple-500'
-                                    }`}
+                                className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm rounded-md text-gray-900"
                             >
-                                <option value="">Select Category</option>
                                 {categoryOptions.map(category => (
                                     <option key={category.value} value={category.value}>
                                         {category.label}
                                     </option>
                                 ))}
                             </select>
-                            {errors.category && <p className="mt-1 text-sm text-red-600">{errors.category}</p>}
                         </div>
                     </div>
 
@@ -338,69 +298,187 @@ export default function EnhancedProductForm({ initialData, onSubmit, isEditing =
                             rows={4}
                             value={formData.description}
                             onChange={(e) => handleInputChange('description', e.target.value)}
-                            className={`mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2 text-gray-900 ${errors.description ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'focus:border-purple-500 focus:ring-purple-500'
-                                }`}
+                            className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2 text-gray-900 focus:border-purple-500 focus:ring-purple-500"
                             placeholder="Enter product description"
                         />
-                        {errors.description && <p className="mt-1 text-sm text-red-600">{errors.description}</p>}
                     </div>
 
                     <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                         <div>
-                            <label htmlFor="price" className="block text-sm font-medium text-gray-700">
-                                Base Price * ($)
+                            <label htmlFor="tax" className="block text-sm font-medium text-gray-700">
+                                Tax Rate (%)
                             </label>
                             <input
                                 type="number"
-                                name="price"
-                                id="price"
+                                name="tax"
+                                id="tax"
                                 step="0.01"
                                 min="0"
-                                value={formData.price}
-                                onChange={(e) => handleInputChange('price', parseFloat(e.target.value) || 0)}
-                                className={`mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2 text-gray-900 ${errors.price ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'focus:border-purple-500 focus:ring-purple-500'
-                                    }`}
+                                max="100"
+                                value={formData.tax || 0}
+                                onChange={(e) => handleInputChange('tax', parseFloat(e.target.value) || 0)}
+                                className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2 text-gray-900 focus:border-purple-500 focus:ring-purple-500"
                                 placeholder="0.00"
                             />
-                            {errors.price && <p className="mt-1 text-sm text-red-600">{errors.price}</p>}
                         </div>
 
-                        <div>
-                            <label htmlFor="stock" className="block text-sm font-medium text-gray-700">
-                                Base Stock *
+                        <div className="flex items-center space-x-4 pt-6">
+                            <label className="flex items-center">
+                                <input
+                                    type="checkbox"
+                                    checked={formData.featured}
+                                    onChange={(e) => handleInputChange('featured', e.target.checked)}
+                                    className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                                />
+                                <span className="ml-2 text-sm text-gray-700">Featured Product</span>
                             </label>
-                            <input
-                                type="number"
-                                name="stock"
-                                id="stock"
-                                min="0"
-                                value={formData.stock}
-                                onChange={(e) => handleInputChange('stock', parseInt(e.target.value) || 0)}
-                                className={`mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2 text-gray-900 ${errors.stock ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'focus:border-purple-500 focus:ring-purple-500'
-                                    }`}
-                                placeholder="0"
-                            />
-                            {errors.stock && <p className="mt-1 text-sm text-red-600">{errors.stock}</p>}
                         </div>
                     </div>
                 </div>
 
-                {/* Product Images */}
+                {/* Colors Section */}
                 <div className="space-y-4">
                     <h2 className="text-lg font-medium text-gray-900 border-b border-gray-200 pb-2">
-                        Product Images
+                        Colors *
                     </h2>
-                    <p className="text-sm text-gray-600">
-                        These images will be used as fallback for units that don't have their own images.
-                    </p>
-                    <ImageUpload
-                        images={formData.images}
-                        onImagesChange={handleImagesChange}
-                        maxImages={10}
-                    />
+
+                    {/* Add new color */}
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            value={newColor}
+                            onChange={(e) => setNewColor(e.target.value)}
+                            placeholder="Enter custom color"
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-900"
+                        />
+                        <button
+                            type="button"
+                            onClick={() => {
+                                addColor(newColor)
+                                setNewColor('')
+                            }}
+                            disabled={!newColor.trim()}
+                            className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
+                        >
+                            Add
+                        </button>
+                    </div>
+
+                    {/* Quick color selection */}
+                    <div>
+                        <p className="text-sm text-gray-600 mb-2">Quick select:</p>
+                        <div className="flex flex-wrap gap-2">
+                            {commonColors.map(color => (
+                                <button
+                                    key={color}
+                                    type="button"
+                                    onClick={() => addColor(color)}
+                                    disabled={formData.colors.includes(color)}
+                                    className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {color}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Selected colors */}
+                    {formData.colors.length > 0 && (
+                        <div>
+                            <p className="text-sm font-medium text-gray-700 mb-2">Selected colors:</p>
+                            <div className="flex flex-wrap gap-2">
+                                {formData.colors.map(color => (
+                                    <span
+                                        key={color}
+                                        className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800"
+                                    >
+                                        {color}
+                                        <button
+                                            type="button"
+                                            onClick={() => removeColor(color)}
+                                            className="ml-2 text-purple-600 hover:text-purple-800"
+                                        >
+                                            ×
+                                        </button>
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
-                {/* Product Sale Configuration */}
+                {/* Sizes Section */}
+                <div className="space-y-4">
+                    <h2 className="text-lg font-medium text-gray-900 border-b border-gray-200 pb-2">
+                        Sizes *
+                    </h2>
+
+                    {/* Add new size */}
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            value={newSize}
+                            onChange={(e) => setNewSize(e.target.value)}
+                            placeholder="Enter custom size"
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-900"
+                        />
+                        <button
+                            type="button"
+                            onClick={() => {
+                                addSize(newSize)
+                                setNewSize('')
+                            }}
+                            disabled={!newSize.trim()}
+                            className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
+                        >
+                            Add
+                        </button>
+                    </div>
+
+                    {/* Quick size selection */}
+                    <div>
+                        <p className="text-sm text-gray-600 mb-2">Quick select for {formData.category}:</p>
+                        <div className="flex flex-wrap gap-2">
+                            {commonSizes[formData.category]?.map(size => (
+                                <button
+                                    key={size}
+                                    type="button"
+                                    onClick={() => addSize(size)}
+                                    disabled={formData.sizes.includes(size)}
+                                    className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {size}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Selected sizes */}
+                    {formData.sizes.length > 0 && (
+                        <div>
+                            <p className="text-sm font-medium text-gray-700 mb-2">Selected sizes:</p>
+                            <div className="flex flex-wrap gap-2">
+                                {formData.sizes.map(size => (
+                                    <span
+                                        key={size}
+                                        className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800"
+                                    >
+                                        {size}
+                                        <button
+                                            type="button"
+                                            onClick={() => removeSize(size)}
+                                            className="ml-2 text-blue-600 hover:text-blue-800"
+                                        >
+                                            ×
+                                        </button>
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Product-Wide Sale Configuration */}
                 <div className="space-y-4">
                     <h2 className="text-lg font-medium text-gray-900 border-b border-gray-200 pb-2">
                         Product-Wide Sale
@@ -455,20 +533,110 @@ export default function EnhancedProductForm({ initialData, onSubmit, isEditing =
                 </div>
 
                 {/* Units Management */}
-                <div className="space-y-4">
-                    <h2 className="text-lg font-medium text-gray-900 border-b border-gray-200 pb-2">
-                        Product Units/Variants
-                    </h2>
-                    <p className="text-sm text-gray-600">
-                        Add different units or variants of this product with their own prices, stock, and images.
-                    </p>
-                    <UnitManager
-                        units={formData.units}
-                        onUnitsChange={handleUnitsChange}
-                        productImages={formData.images}
-                        errors={errors}
-                    />
-                </div>
+                {formData.units.length > 0 && (
+                    <div className="space-y-4">
+                        <h2 className="text-lg font-medium text-gray-900 border-b border-gray-200 pb-2">
+                            Product Units ({formData.units.length} combinations)
+                        </h2>
+                        <p className="text-sm text-gray-600">
+                            Configure pricing, stock, and images for each color-size combination.
+                        </p>
+
+                        <div className="space-y-6">
+                            {formData.units.map((unit, index) => (
+                                <div key={unit.unitId} className="border border-gray-200 rounded-lg p-4">
+                                    <h3 className="text-md font-medium text-gray-900 mb-4">
+                                        {unit.color} - {unit.size}
+                                    </h3>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700">
+                                                Price * ($)
+                                            </label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                min="0"
+                                                value={unit.price}
+                                                onChange={(e) => updateUnit(unit.unitId, 'price', parseFloat(e.target.value) || 0)}
+                                                className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2 text-gray-900 focus:border-purple-500 focus:ring-purple-500"
+                                                placeholder="0.00"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700">
+                                                Stock *
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={unit.stock}
+                                                onChange={(e) => updateUnit(unit.unitId, 'stock', parseInt(e.target.value) || 0)}
+                                                className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2 text-gray-900 focus:border-purple-500 focus:ring-purple-500"
+                                                placeholder="0"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Unit Sale Configuration */}
+                                    <div className="mb-4">
+                                        <div className="flex items-center mb-2">
+                                            <input
+                                                type="checkbox"
+                                                checked={unit.saleConfig.isOnSale}
+                                                onChange={(e) => updateUnitSaleConfig(unit.unitId, 'isOnSale', e.target.checked)}
+                                                className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                                            />
+                                            <label className="ml-2 block text-sm text-gray-900">
+                                                Individual sale for this unit
+                                            </label>
+                                        </div>
+
+                                        {unit.saleConfig.isOnSale && (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-gray-50 p-3 rounded-md">
+                                                <div>
+                                                    <select
+                                                        value={unit.saleConfig.saleType}
+                                                        onChange={(e) => updateUnitSaleConfig(unit.unitId, 'saleType', e.target.value)}
+                                                        className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm rounded-md text-gray-900"
+                                                    >
+                                                        <option value="percentage">Percentage (%)</option>
+                                                        <option value="amount">Fixed Amount ($)</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        min="0"
+                                                        value={unit.saleConfig.saleValue}
+                                                        onChange={(e) => updateUnitSaleConfig(unit.unitId, 'saleValue', parseFloat(e.target.value) || 0)}
+                                                        className="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2 text-gray-900 focus:border-purple-500 focus:ring-purple-500"
+                                                        placeholder={unit.saleConfig.saleType === 'percentage' ? '20' : '10.00'}
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Unit Images */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Images for {unit.color} - {unit.size} *
+                                        </label>
+                                        <ImageUpload
+                                            images={unit.images}
+                                            onImagesChange={(images) => updateUnit(unit.unitId, 'images', images)}
+                                            maxImages={5}
+                                        />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 {/* Form Actions */}
                 <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
@@ -490,3 +658,6 @@ export default function EnhancedProductForm({ initialData, onSubmit, isEditing =
         </div>
     )
 }
+
+// Export the types for use in other files
+export type { ProductFormData as EnhancedProductFormData }

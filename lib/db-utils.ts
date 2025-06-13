@@ -54,8 +54,10 @@ export async function searchProducts(query: string) {
 }
 
 // Update interfaces to reflect API structure
+import { Product } from '@/lib/models/Product'
+
 export interface ApiProductsResponse {
-  products: CartItem[]
+  products: Product[]
   pagination: {
     currentPage: number
     totalPages: number
@@ -88,11 +90,18 @@ export interface CartItem {
     height: number;
     unit?: 'in' | 'cm'; // Add dimension unit
   }
+  // Add tax-related fields
+  taxPercentage?: number
+  taxAmount?: number
+  totalWithTax?: number
+  customDetails?: any // For custom items
 }
 
 export interface CartState {
   items: CartItem[]
   itemCount: number
   totalPrice: number
+  totalTax?: number
+  totalWithTax?: number
 }
 

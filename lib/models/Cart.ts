@@ -2,8 +2,7 @@ import mongoose from 'mongoose'
 
 const CartItemSchema = new mongoose.Schema({
   productId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Product',
+    type: mongoose.Schema.Types.Mixed, // Changed from ObjectId to Mixed to allow strings for custom items
     required: true,
   },
   unitId: {
@@ -26,6 +25,27 @@ const CartItemSchema = new mongoose.Schema({
     length: { type: Number },
     width: { type: Number },
     height: { type: Number }
+  },
+  // Add tax-related fields
+  taxPercentage: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 100
+  },
+  taxAmount: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  totalWithTax: {
+    type: Number,
+    min: 0
+  },
+  // Add fields specific to custom items
+  customDetails: {
+    type: mongoose.Schema.Types.Mixed,
+    required: false // Only present for custom items
   }
 }, { _id: false })
 
@@ -49,6 +69,24 @@ CartSchema.pre('save', function (next) {
   this.updatedAt = new Date()
   next()
 })
+
+// Add method to calculate cart total with tax
+CartSchema.methods.calculateTotalWithTax = function () {
+  return this.items.reduce((total, item) => {
+    const itemTotal = item.effectivePrice * item.quantity;
+    const taxAmount = itemTotal * (item.taxPercentage || 0) / 100;
+    return total + itemTotal + taxAmount;
+  }, 0);
+};
+
+// Add method to calculate total tax for cart
+CartSchema.methods.calculateTotalTax = function () {
+  return this.items.reduce((total, item) => {
+    const itemTotal = item.effectivePrice * item.quantity;
+    const taxAmount = itemTotal * (item.taxPercentage || 0) / 100;
+    return total + taxAmount;
+  }, 0);
+};
 
 // Create the model
 const Cart = mongoose.models.Cart || mongoose.model('Cart', CartSchema)

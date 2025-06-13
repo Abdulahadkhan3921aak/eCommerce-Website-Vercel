@@ -28,7 +28,7 @@ export default function ProductGrid({ products }: ProductGridProps) {
         const isOutOfStock = totalStock === 0;
         const lowStock = totalStock <= 5 && totalStock > 0;
         const priceRange = getProductPriceRange(product);
-        const hasVariedPricing = priceRange.min !== priceRange.max;
+        const hasVariedPricing = !priceRange.isSinglePrice;
         const productOnSale = hasAnySale(product);
 
         return (
@@ -68,7 +68,7 @@ export default function ProductGrid({ products }: ProductGridProps) {
                       </span>
                     ) : productOnSale ? (
                       <>
-                        <span className="text-sm text-gray-500 line-through">${product.price.toFixed(2)}</span>
+                        <span className="text-sm text-gray-500 line-through">${(product.units && product.units.length > 0 ? product.units[0].price : product.price).toFixed(2)}</span>
                         <span className="text-red-600 ml-1">${priceRange.min.toFixed(2)}</span>
                       </>
                     ) : (

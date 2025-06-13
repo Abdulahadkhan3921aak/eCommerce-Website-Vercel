@@ -2,6 +2,7 @@
 
 import { useState, useEffect, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
+import ImageUpload from './ImageUpload'
 
 // Unified interface that supports both simple and enhanced products
 export interface ProductFormData {
@@ -206,31 +207,12 @@ export default function ProductForm({ initialData, onSubmit, isEditing = false }
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700">Images (URLs)</label>
-        <div className="space-y-2">
-          {formData.images.map((image, index) => (
-            <div key={index} className="flex flex-col sm:flex-row sm:items-center gap-2">
-              <input
-                type="url"
-                value={image}
-                onChange={(e) => handleImageChange(index, e.target.value)}
-                placeholder="https://example.com/image.jpg"
-                className="block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2"
-              />
-              {formData.images.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removeImageField(index)}
-                  className="text-red-500 hover:text-red-700 text-sm font-medium sm:ml-2 sm:whitespace-nowrap"
-                >
-                  Remove
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-        <button type="button" onClick={addImageField} className="mt-2 text-sm text-purple-600 hover:text-purple-800">Add Another Image</button>
-        <p className="mt-1 text-xs text-gray-500">Enter direct URLs for product images.</p>
+        <label className="block text-sm font-medium text-gray-700">Images</label>
+        <ImageUpload
+          images={formData.images}
+          onImagesChange={(images) => setFormData(prev => ({ ...prev, images }))}
+          maxImages={10}
+        />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -5,6 +5,8 @@ import { useParams } from 'next/navigation'
 import Header from '@/components/Header'
 import Link from 'next/link'
 import { usePopup } from '@/lib/contexts/PopupContext'
+import OrderStatus from '@/components/admin/OrderStatus'
+import ShippingModal from '@/components/admin/ShippingModal'
 
 interface OrderDetails {
     _id: string
@@ -66,7 +68,9 @@ interface OrderDetails {
         length: number
         width: number
         height: number
+        unit?: 'in' | 'cm'
     }
+    shippingWeightUnit?: 'lb' | 'kg'
     adminApproval?: {
         isApproved?: boolean
         approvedBy?: string
@@ -84,22 +88,8 @@ interface OrderDetails {
         sentAt: string
     }>
     isPriceAdjusted?: boolean
-}
-
-interface ShippingRate {
-    rateId: string
-    carrier: string
-    serviceName: string
-    serviceLevelToken: string
-    serviceLevelName: string
-    cost: number
-    displayCost: number
-    originalCost: number
-    estimatedDays?: number
-    deliveryEstimate: string
-    isFreeShipping: boolean
-    attributes: string[]
-    providerImage?: string
+    paymentToken?: string
+    paymentTokenExpiry?: string
 }
 
 export default function AdminOrderDetailsPage() {
@@ -108,22 +98,15 @@ export default function AdminOrderDetailsPage() {
 
     const [order, setOrder] = useState<OrderDetails | null>(null)
     const [loading, setLoading] = useState(true)
-    const [shippingRates, setShippingRates] = useState<ShippingRate[]>([])
-    const [selectedRateId, setSelectedRateId] = useState<string>('')
-
-    // Package details form
-    const [weight, setWeight] = useState('')
-    const [length, setLength] = useState('')
-    const [width, setWidth] = useState('')
-    const [height, setHeight] = useState('')
-
-    // UI states
     const [showShippingModal, setShowShippingModal] = useState(false)
-    const [loadingRates, setLoadingRates] = useState(false)
-    const [selectingRate, setSelectingRate] = useState(false)
-    const [creatingLabel, setCreatingLabel] = useState(false)
+    const [taxInput, setTaxInput] = useState('')
+    const [updatingTax, setUpdatingTax] = useState(false)
+    const [generatingPaymentLink, setGeneratingPaymentLink] = useState(false)
+    const [regeneratingPaymentLink, setRegeneratingPaymentLink] = useState(false)
+    const [markingShipped, setMarkingShipped] = useState(false)
+    const [shippingUpdateLoading, setShippingUpdateLoading] = useState(false)
 
-    const { showAlert, showPopup } = usePopup()
+    const { showAlert } = usePopup()
 
     useEffect(() => {
         if (orderId) {
@@ -133,19 +116,17 @@ export default function AdminOrderDetailsPage() {
 
     const fetchOrderDetails = async () => {
         try {
+            console.log('Fetching order details for ID:', orderId)
             const response = await fetch(`/api/admin/orders/${orderId}`)
             const data = await response.json()
 
+            console.log('Order fetch response:', { status: response.status, data })
+
             if (response.ok) {
                 setOrder(data.order)
-                // Pre-fill package details if available
-                if (data.order.shippingWeight) setWeight(data.order.shippingWeight.toString())
-                if (data.order.shippingDimensions) {
-                    setLength(data.order.shippingDimensions.length.toString())
-                    setWidth(data.order.shippingDimensions.width.toString())
-                    setHeight(data.order.shippingDimensions.height.toString())
-                }
+                setTaxInput(data.order.tax.toFixed(2))
             } else {
+                console.error('Failed to fetch order:', data)
                 showAlert(data.error || 'Failed to load order details', 'error')
             }
         } catch (error) {
@@ -156,173 +137,95 @@ export default function AdminOrderDetailsPage() {
         }
     }
 
-    const handleGetShippingRates = async () => {
-        if (!weight || !length || !width || !height) {
-            showAlert('Please enter all package details', 'warning')
-            return
+    const handleUpdateTax = async () => {
+        if (!order || taxInput === '') {
+            showAlert('Invalid tax amount.', 'warning');
+            return;
+        }
+        const newTax = parseFloat(taxInput);
+        if (isNaN(newTax) || newTax < 0) {
+            showAlert('Tax amount must be a positive number.', 'warning');
+            return;
         }
 
-        setLoadingRates(true)
+        setUpdatingTax(true);
         try {
-            const response = await fetch(`/api/admin/orders/${orderId}/update-shipping-details`, {
+            const response = await fetch(`/api/admin/orders/${orderId}/edit-tax`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    shippingWeight: parseFloat(weight),
-                    shippingDimensions: {
-                        length: parseFloat(length),
-                        width: parseFloat(width),
-                        height: parseFloat(height)
-                    }
-                })
-            })
-
-            const data = await response.json()
-
+                body: JSON.stringify({ newTaxAmount: newTax, setTaxFlag: true }),
+            });
+            const data = await response.json();
             if (response.ok) {
-                // Convert the response to match the expected ShippingRate format
-                const formattedRates: ShippingRate[] = data.availableRates?.map((rate: any) => ({
-                    rateId: rate.rateId,
-                    carrier: rate.carrier,
-                    serviceName: rate.serviceName,
-                    serviceLevelToken: rate.serviceLevelToken,
-                    serviceLevelName: rate.serviceLevelName,
-                    cost: rate.cost,
-                    displayCost: rate.cost,
-                    originalCost: rate.cost,
-                    estimatedDays: rate.estimatedDays,
-                    deliveryEstimate: rate.deliveryEstimate,
-                    isFreeShipping: false, // This can be enhanced based on business logic
-                    attributes: rate.attributes || [],
-                    providerImage: rate.providerImage
-                })) || []
-
-                setShippingRates(formattedRates)
-                showAlert(`Found ${formattedRates.length} shipping options`, 'success')
+                setOrder(data.order);
+                setTaxInput(data.order.tax.toFixed(2));
+                showAlert(data.message || 'Tax updated successfully!', 'success');
             } else {
-                showAlert(data.error || 'Failed to get shipping rates', 'error')
+                showAlert(data.error || 'Failed to update tax.', 'error');
             }
         } catch (error) {
-            console.error('Error getting shipping rates:', error)
-            showAlert('Failed to get shipping rates', 'error')
+            console.error('Error updating tax:', error);
+            showAlert('An error occurred while updating tax.', 'error');
         } finally {
-            setLoadingRates(false)
+            setUpdatingTax(false);
         }
-    }
+    };
 
-    const handleSelectRate = async (rateId: string) => {
-        const selectedRate = shippingRates.find(r => r.rateId === rateId)
-        if (!selectedRate) return
+    const handleGeneratePaymentLink = async () => {
+        if (!order) return;
 
-        setSelectingRate(true)
+        // Check if tax has been set
+        if (!order.isTaxSet) {
+            showAlert('Please set the tax amount before generating a payment link.', 'warning');
+            return;
+        }
+
+        setGeneratingPaymentLink(true);
         try {
-            const response = await fetch(`/api/admin/orders/${orderId}/update-shipping-details`, {
+            const response = await fetch(`/api/admin/orders/${orderId}/generate-payment-link`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    selectedRateId: rateId,
-                    rateDetails: {
-                        rateId: selectedRate.rateId,
-                        carrier: selectedRate.carrier,
-                        serviceName: selectedRate.serviceName,
-                        serviceLevelToken: selectedRate.serviceLevelToken,
-                        serviceLevelName: selectedRate.serviceLevelName,
-                        cost: selectedRate.cost,
-                        estimatedDays: selectedRate.estimatedDays
-                    }
-                })
-            })
-
-            const data = await response.json()
-
+            });
+            const data = await response.json();
             if (response.ok) {
-                setOrder(data.order)
-                setSelectedRateId(rateId)
-                showAlert('Shipping rate selected successfully', 'success')
-
-                if (data.priceChanged) {
-                    showAlert('Order total has been updated with new shipping cost', 'info')
-                }
+                setOrder(data.order);
+                showAlert(data.message || 'Payment link generated and sent!', 'success');
             } else {
-                showAlert(data.error || 'Failed to select shipping rate', 'error')
+                showAlert(data.error || 'Failed to generate payment link.', 'error');
             }
         } catch (error) {
-            console.error('Error selecting shipping rate:', error)
-            showAlert('Failed to select shipping rate', 'error')
+            console.error('Error generating payment link:', error);
+            showAlert('An error occurred.', 'error');
         } finally {
-            setSelectingRate(false)
+            setGeneratingPaymentLink(false);
         }
-    }
+    };
 
-    const handleCreateLabel = async () => {
-        if (!order?.shippoShipment?.rateId && !selectedRateId) {
-            showAlert('Please select a shipping rate first', 'warning')
-            return
-        }
+    const handleRegeneratePaymentLink = async () => {
+        if (!order) return;
 
-        showPopup({
-            title: 'Create Shipping Label',
-            message: 'This will create a shipping label and update the order status. Continue?',
-            type: 'confirm',
-            actions: [
-                {
-                    label: 'Cancel',
-                    action: () => { },
-                    variant: 'secondary'
+        setRegeneratingPaymentLink(true);
+        try {
+            const response = await fetch(`/api/admin/orders/${orderId}/generate-payment-link`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
                 },
-                {
-                    label: 'Create Label',
-                    action: async () => {
-                        setCreatingLabel(true)
-                        try {
-                            const response = await fetch(`/api/admin/orders/${orderId}/shipping`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    action: 'create_label',
-                                    rateId: selectedRateId || order?.shippoShipment?.rateId,
-                                    labelFileType: 'PDF_4x6'
-                                })
-                            })
-
-                            const data = await response.json()
-
-                            if (response.ok) {
-                                setOrder(data.order)
-                                showAlert('Shipping label created successfully!', 'success')
-
-                                if (data.transaction.labelUrl) {
-                                    // Open label in new tab
-                                    window.open(data.transaction.labelUrl, '_blank')
-                                }
-                            } else {
-                                showAlert(data.error || 'Failed to create shipping label', 'error')
-                            }
-                        } catch (error) {
-                            console.error('Error creating shipping label:', error)
-                            showAlert('Failed to create shipping label', 'error')
-                        } finally {
-                            setCreatingLabel(false)
-                        }
-                    },
-                    variant: 'primary'
-                }
-            ]
-        })
-    }
-
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            case 'pending_approval': return 'bg-yellow-100 text-yellow-800 border-yellow-200'
-            case 'approved': return 'bg-green-100 text-green-800 border-green-200'
-            case 'rejected': return 'bg-red-100 text-red-800 border-red-200'
-            case 'processing': return 'bg-blue-100 text-blue-800 border-blue-200'
-            case 'shipped': return 'bg-purple-100 text-purple-800 border-purple-200'
-            case 'delivered': return 'bg-emerald-100 text-emerald-800 border-emerald-200'
-            case 'pending_payment_adjustment': return 'bg-orange-100 text-orange-800 border-orange-200'
-            default: return 'bg-gray-100 text-gray-800 border-gray-200'
+                body: JSON.stringify({ regenerate: true })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                setOrder(data.order);
+                showAlert(data.message || 'Payment link regenerated and sent!', 'success');
+            } else {
+                showAlert(data.error || 'Failed to regenerate payment link.', 'error');
+            }
+        } catch (error) {
+            console.error('Error regenerating payment link:', error);
+            showAlert('An error occurred.', 'error');
+        } finally {
+            setRegeneratingPaymentLink(false);
         }
-    }
+    };
 
     const getShippingCompletionStatus = () => {
         if (!order) return { complete: false, missing: [] }
@@ -346,6 +249,43 @@ export default function AdminOrderDetailsPage() {
             missing
         }
     }
+
+    const handleOrderUpdate = async () => {
+        console.log('Order update triggered')
+        setShippingUpdateLoading(true)
+        try {
+            await fetchOrderDetails()
+            showAlert('Order details refreshed successfully', 'success')
+        } catch (error) {
+            console.error('Error updating order:', error)
+            showAlert('Failed to refresh order details', 'error')
+        } finally {
+            setShippingUpdateLoading(false)
+        }
+    }
+
+    const handleMarkShipped = async () => {
+        if (!order) return;
+
+        setMarkingShipped(true);
+        try {
+            const response = await fetch(`/api/admin/orders/${orderId}/mark-shipped`, {
+                method: 'POST',
+            });
+            const data = await response.json();
+            if (response.ok) {
+                setOrder(data.order);
+                showAlert(data.message || 'Order marked as shipped and customer notified!', 'success');
+            } else {
+                showAlert(data.error || 'Failed to mark order as shipped.', 'error');
+            }
+        } catch (error) {
+            console.error('Error marking order as shipped:', error);
+            showAlert('An error occurred.', 'error');
+        } finally {
+            setMarkingShipped(false);
+        }
+    };
 
     if (loading) {
         return (
@@ -393,16 +333,27 @@ export default function AdminOrderDetailsPage() {
                         <button
                             onClick={() => setShowShippingModal(true)}
                             className={`${!getShippingCompletionStatus().complete &&
-                                ['pending_approval', 'approved'].includes(order.status)
+                                ['pending_approval', 'accepted'].includes(order.status)
                                 ? 'bg-orange-600 hover:bg-orange-700 focus:ring-orange-500'
                                 : ''} btn-primary`}
-                            disabled={['shipped', 'delivered', 'cancelled'].includes(order.status)}
+                            disabled={['shipped', 'delivered', 'cancelled', 'rejected'].includes(order.status)}
                         >
                             {!getShippingCompletionStatus().complete &&
-                                ['pending_approval', 'approved'].includes(order.status)
-                                ? 'Complete Shipping Setup'
+                                ['pending_approval', 'accepted'].includes(order.status)
+                                ? 'Setup Shipping'
                                 : 'Manage Shipping'}
                         </button>
+
+                        {order.status === 'processing' && order.paymentStatus === 'captured' && order.shippoShipment?.labelUrl && (
+                            <button
+                                onClick={handleMarkShipped}
+                                disabled={markingShipped}
+                                className="btn-primary bg-green-600 hover:bg-green-700 focus:ring-green-500"
+                            >
+                                {markingShipped ? 'Marking Shipped...' : 'Mark as Shipped'}
+                            </button>
+                        )}
+
                         <Link href="/admin/orders" className="btn-secondary">
                             Back to Orders
                         </Link>
@@ -430,32 +381,15 @@ export default function AdminOrderDetailsPage() {
                         </div>
                     )}
 
-                {/* Order Status */}
-                <div className="bg-white rounded-lg shadow p-6 mb-6">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h2 className="text-lg font-semibold text-gray-900 mb-2">Order Status</h2>
-                            <div className="flex items-center space-x-4">
-                                <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full border ${getStatusColor(order.status)}`}>
-                                    {order.status.replace(/_/g, ' ').toUpperCase()}
-                                </span>
-                                <span className="text-sm text-gray-600">
-                                    Payment: {order.paymentStatus.replace(/_/g, ' ')}
-                                </span>
-                            </div>
-                        </div>
-                        <div className="text-right">
-                            <div className="text-2xl font-bold text-gray-900">
-                                ${order.total.toFixed(2)}
-                            </div>
-                            {order.isPriceAdjusted && (
-                                <span className="text-sm text-orange-600 font-medium">
-                                    Price Adjusted
-                                </span>
-                            )}
-                        </div>
-                    </div>
-                </div>
+                {/* Order Status Component */}
+                <OrderStatus
+                    status={order.status}
+                    paymentStatus={order.paymentStatus}
+                    total={order.total}
+                    isPriceAdjusted={order.isPriceAdjusted}
+                    orderNumber={order.orderNumber}
+                    createdAt={order.createdAt}
+                />
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Order Items */}
@@ -501,7 +435,7 @@ export default function AdminOrderDetailsPage() {
                                 <div className="flex justify-between text-sm">
                                     <span>Shipping:</span>
                                     <span>
-                                        {order.shippingCost === 0 ? (
+                                        {order.shippingCost === 0 && order.items.length > 0 ? (
                                             <span className="text-green-600 font-medium">FREE</span>
                                         ) : (
                                             `$${order.shippingCost.toFixed(2)}`
@@ -509,8 +443,25 @@ export default function AdminOrderDetailsPage() {
                                     </span>
                                 </div>
                                 <div className="flex justify-between text-sm">
-                                    <span>Tax:</span>
-                                    <span>${order.tax.toFixed(2)}</span>
+                                    <label htmlFor="tax-edit" className="font-medium">Tax:</label>
+                                    {['pending_approval', 'accepted'].includes(order.status) && !order.paymentToken ? (
+                                        <div className="flex items-center">
+                                            <span className="mr-1">$</span>
+                                            <input
+                                                id="tax-edit"
+                                                type="number"
+                                                step="0.01"
+                                                value={taxInput}
+                                                onChange={(e) => setTaxInput(e.target.value)}
+                                                onBlur={handleUpdateTax}
+                                                disabled={updatingTax || !(['pending_approval', 'accepted'].includes(order.status))}
+                                                className="w-20 px-1 py-0.5 border border-gray-300 rounded-md text-sm text-right focus:ring-purple-500 focus:border-purple-500"
+                                            />
+                                            {updatingTax && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900 ml-2"></div>}
+                                        </div>
+                                    ) : (
+                                        <span>${order.tax.toFixed(2)}</span>
+                                    )}
                                 </div>
                                 <div className="flex justify-between text-lg font-semibold pt-2 border-t">
                                     <span>Total:</span>
@@ -556,11 +507,11 @@ export default function AdminOrderDetailsPage() {
                                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Shipping Details</h2>
                                 <div className="space-y-2 text-sm">
                                     {order.shippingWeight && (
-                                        <div><strong>Weight:</strong> {order.shippingWeight} lbs</div>
+                                        <div><strong>Weight:</strong> {order.shippingWeight} {order.shippingWeightUnit || 'lbs'}</div>
                                     )}
                                     {order.shippingDimensions && (
                                         <div>
-                                            <strong>Dimensions:</strong> {order.shippingDimensions.length}" × {order.shippingDimensions.width}" × {order.shippingDimensions.height}"
+                                            <strong>Dimensions:</strong> {order.shippingDimensions.length}" × {order.shippingDimensions.width}" × {order.shippingDimensions.height}" {order.shippingDimensions.unit || 'in'}
                                         </div>
                                     )}
                                     {order.shippoShipment?.carrier && (
@@ -574,14 +525,56 @@ export default function AdminOrderDetailsPage() {
                                     )}
                                     {order.shippoShipment?.labelUrl && (
                                         <div>
-                                            <a
-                                                href={order.shippoShipment.labelUrl}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="text-blue-600 hover:text-blue-800"
+                                            {['accepted', 'pending_payment', 'processing', 'shipped', 'delivered'].includes(order.status) ? (
+                                                <a
+                                                    href={order.shippoShipment.labelUrl}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="text-blue-600 hover:text-blue-800 font-medium inline-flex items-center"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                    </svg>
+                                                    Download Shipping Label
+                                                </a>
+                                            ) : (
+                                                <span className="text-gray-500 inline-flex items-center" title="Label not available">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                                    </svg>
+                                                    Shipping Label Not Available
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+                                    {order.status === 'accepted' && order.shippoShipment?.labelUrl && order.isTaxSet && !order.paymentToken && (
+                                        <div className="mt-4">
+                                            <button
+                                                onClick={handleGeneratePaymentLink}
+                                                disabled={generatingPaymentLink}
+                                                className="btn-primary bg-blue-600 hover:bg-blue-700 focus:ring-blue-500 w-full"
                                             >
-                                                View Shipping Label
-                                            </a>
+                                                {generatingPaymentLink ? 'Generating Link...' : 'Get Payment Link for Customer'}
+                                            </button>
+                                        </div>
+                                    )}
+                                    {order.status === 'accepted' && order.shippoShipment?.labelUrl && !order.isTaxSet && (
+                                        <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-md text-sm text-orange-700">
+                                            ⚠️ Please set the tax amount above before generating a payment link.
+                                        </div>
+                                    )}
+                                    {order.paymentToken && order.status === 'pending_payment' && (
+                                        <div className="mt-4 space-y-3">
+                                            <div className="p-3 bg-blue-50 rounded-md text-sm text-blue-700">
+                                                Payment link sent. Token: ...{order.paymentToken.slice(-8)}. Expires: {new Date(order.paymentTokenExpiry!).toLocaleString()}
+                                            </div>
+                                            <button
+                                                onClick={handleRegeneratePaymentLink}
+                                                disabled={regeneratingPaymentLink}
+                                                className="btn-primary bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500 w-full"
+                                            >
+                                                {regeneratingPaymentLink ? 'Regenerating Link...' : '🔄 Regenerate Payment Link'}
+                                            </button>
                                         </div>
                                     )}
                                 </div>
@@ -614,173 +607,12 @@ export default function AdminOrderDetailsPage() {
 
                 {/* Shipping Management Modal */}
                 {showShippingModal && (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                        <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-screen overflow-y-auto">
-                            <div className="flex justify-between items-center mb-6">
-                                <h3 className="text-xl font-semibold text-gray-900">
-                                    Shipping Management
-                                </h3>
-                                <button
-                                    onClick={() => setShowShippingModal(false)}
-                                    className="text-gray-400 hover:text-gray-600"
-                                >
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                </button>
-                            </div>
-
-                            {/* Package Details */}
-                            <div className="mb-6">
-                                <h4 className="text-lg font-medium text-gray-900 mb-4">Package Details</h4>
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Weight (lbs)
-                                        </label>
-                                        <input
-                                            type="number"
-                                            step="0.1"
-                                            value={weight}
-                                            onChange={(e) => setWeight(e.target.value)}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                            placeholder="0.0"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Length (in)
-                                        </label>
-                                        <input
-                                            type="number"
-                                            step="0.1"
-                                            value={length}
-                                            onChange={(e) => setLength(e.target.value)}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                            placeholder="0.0"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Width (in)
-                                        </label>
-                                        <input
-                                            type="number"
-                                            step="0.1"
-                                            value={width}
-                                            onChange={(e) => setWidth(e.target.value)}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                            placeholder="0.0"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Height (in)
-                                        </label>
-                                        <input
-                                            type="number"
-                                            step="0.1"
-                                            value={height}
-                                            onChange={(e) => setHeight(e.target.value)}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                            placeholder="0.0"
-                                        />
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={handleGetShippingRates}
-                                    disabled={loadingRates}
-                                    className="mt-4 btn-primary"
-                                >
-                                    {loadingRates ? 'Getting Rates...' : 'Get Shipping Rates'}
-                                </button>
-                            </div>
-
-                            {/* Shipping Rates */}
-                            {shippingRates.length > 0 && (
-                                <div className="mb-6">
-                                    <h4 className="text-lg font-medium text-gray-900 mb-4">
-                                        Available Shipping Options
-                                    </h4>
-                                    <div className="space-y-3 max-h-64 overflow-y-auto">
-                                        {shippingRates.map((rate) => (
-                                            <div
-                                                key={rate.rateId}
-                                                className={`p-4 border rounded-lg cursor-pointer transition-colors ${selectedRateId === rate.rateId
-                                                    ? 'border-purple-500 bg-purple-50'
-                                                    : 'border-gray-200 hover:border-gray-300'
-                                                    }`}
-                                                onClick={() => setSelectedRateId(rate.rateId)}
-                                            >
-                                                <div className="flex justify-between items-start">
-                                                    <div className="flex-1">
-                                                        <div className="flex items-center space-x-3">
-                                                            <input
-                                                                type="radio"
-                                                                checked={selectedRateId === rate.rateId}
-                                                                onChange={() => setSelectedRateId(rate.rateId)}
-                                                                className="text-purple-600"
-                                                            />
-                                                            {rate.providerImage && (
-                                                                <img
-                                                                    src={rate.providerImage}
-                                                                    alt={rate.carrier}
-                                                                    className="w-8 h-8"
-                                                                />
-                                                            )}
-                                                            <div>
-                                                                <div className="font-medium text-gray-900">
-                                                                    {rate.serviceName}
-                                                                </div>
-                                                                <div className="text-sm text-gray-600">
-                                                                    {rate.deliveryEstimate}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <div className="font-semibold text-gray-900">
-                                                            ${rate.displayCost.toFixed(2)}
-                                                        </div>
-                                                        {rate.isFreeShipping && rate.originalCost > 0 && (
-                                                            <div className="text-xs text-green-600">
-                                                                Free shipping applied!
-                                                            </div>
-                                                        )}
-                                                        {rate.displayCost !== rate.originalCost && (
-                                                            <div className="text-xs text-gray-500 line-through">
-                                                                ${rate.originalCost.toFixed(2)}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-
-                                    <div className="flex space-x-3 mt-4">
-                                        <button
-                                            onClick={() => handleSelectRate(selectedRateId)}
-                                            disabled={!selectedRateId || selectingRate}
-                                            className="btn-primary"
-                                        >
-                                            {selectingRate ? 'Selecting...' : 'Select Rate'}
-                                        </button>
-
-                                        {(order.shippoShipment?.rateId || selectedRateId) && (
-                                            <button
-                                                onClick={handleCreateLabel}
-                                                disabled={creatingLabel}
-                                                className="btn-secondary"
-                                            >
-                                                {creatingLabel ? 'Creating Label...' : 'Create Shipping Label'}
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
+                    <ShippingModal
+                        order={order}
+                        isOpen={showShippingModal}
+                        onClose={() => setShowShippingModal(false)}
+                        onOrderUpdate={handleOrderUpdate}
+                    />
                 )}
             </div>
         </div>

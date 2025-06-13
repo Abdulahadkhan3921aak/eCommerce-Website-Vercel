@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
 import dbConnect from '@/lib/mongodb'
 import Order from '@/lib/models/Order'
-import ShippoService, { ShippoAddressInput, ShippoParcel, ShippoShipmentRequestData, ShippoTransactionRequest } from '@/lib/services/shippo'
+import ShippoService, { ShippoAddressInput, ShippoParcel, ShippoShipmentRequestData } from '@/lib/services/shippo'
 import { DistanceUnitEnum, WeightUnitEnum } from 'shippo'
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
         const { userId } = await auth()
         const user = await currentUser()
@@ -19,8 +19,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
             return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
         }
 
-        const { action, ...requestData } = await request.json()
-        const orderId = params.id
+        const resolvedParams = await params
+        const orderId = resolvedParams.id
+        const requestData = await request.json()
 
         await dbConnect()
         const order = await Order.findById(orderId)
@@ -29,16 +30,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
             return NextResponse.json({ error: 'Order not found' }, { status: 404 })
         }
 
-        switch (action) {
-            case 'get_rates':
-                return await handleGetRates(order, requestData)
-            case 'select_rate':
-                return await handleSelectRate(order, requestData, userId)
-            case 'create_label':
-                return await handleCreateLabel(order, requestData, userId)
-            default:
-                return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
-        }
+        // This endpoint handles getting shipping rates and updating package details
+        return await handleGetRates(order, requestData)
     } catch (error) {
         console.error('Shipping API error:', error)
         return NextResponse.json({
@@ -49,9 +42,28 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 }
 
 async function handleGetRates(order: any, requestData: any) {
-    const { weight, dimensions } = requestData
+    const { shippingWeight, shippingWeightUnit, shippingDimensions } = requestData
 
-    if (!weight || !dimensions || !dimensions.length || !dimensions.width || !dimensions.height) {
+    // Convert units to imperial (required by Shippo)
+    let weightInLbs = shippingWeight
+    if (shippingWeightUnit === 'kg') {
+        weightInLbs = shippingWeight * 2.20462
+    }
+
+    let dimensionsInInches = {
+        length: shippingDimensions.length,
+        width: shippingDimensions.width,
+        height: shippingDimensions.height
+    }
+    if (shippingDimensions.unit === 'cm') {
+        dimensionsInInches = {
+            length: shippingDimensions.length * 0.393701,
+            width: shippingDimensions.width * 0.393701,
+            height: shippingDimensions.height * 0.393701
+        }
+    }
+
+    if (!weightInLbs || !dimensionsInInches.length || !dimensionsInInches.width || !dimensionsInInches.height) {
         return NextResponse.json({
             error: 'Package weight and dimensions are required'
         }, { status: 400 })
@@ -74,22 +86,22 @@ async function handleGetRates(order: any, requestData: any) {
     const addressTo: ShippoAddressInput = {
         name: order.shippingAddress.name,
         street1: order.shippingAddress.line1,
-        street2: order.shippingAddress.line2,
+        street2: order.shippingAddress.line2 || "",
         city: order.shippingAddress.city,
         state: order.shippingAddress.state,
         zip: order.shippingAddress.postal_code,
         country: order.shippingAddress.country,
-        phone: order.customerPhone,
+        phone: order.customerPhone || "",
         email: order.customerEmail,
         is_residential: order.shippingAddress.residential !== false,
     }
 
     const parcel: ShippoParcel = {
-        length: String(dimensions.length),
-        width: String(dimensions.width),
-        height: String(dimensions.height),
+        length: String(dimensionsInInches.length),
+        width: String(dimensionsInInches.width),
+        height: String(dimensionsInInches.height),
         distanceUnit: DistanceUnitEnum.In,
-        weight: String(weight),
+        weight: String(weightInLbs),
         massUnit: WeightUnitEnum.Lb,
     }
 
@@ -103,10 +115,6 @@ async function handleGetRates(order: any, requestData: any) {
     try {
         const rates = await ShippoService.getRates(shipmentRequestData)
 
-        // Calculate if order qualifies for free shipping
-        const FREE_SHIPPING_THRESHOLD = parseFloat(process.env.FREE_SHIPPING_THRESHOLD || "100")
-        const qualifiesForFreeShipping = order.subtotal >= FREE_SHIPPING_THRESHOLD
-
         const processedRates = rates.map(rate => ({
             rateId: rate.objectId,
             carrier: rate.provider,
@@ -114,171 +122,33 @@ async function handleGetRates(order: any, requestData: any) {
             serviceLevelToken: rate.servicelevel.token,
             serviceLevelName: rate.servicelevel.name,
             cost: parseFloat(rate.amount),
-            displayCost: qualifiesForFreeShipping ? 0 : parseFloat(rate.amount),
-            originalCost: parseFloat(rate.amount),
+            currency: rate.currency,
             estimatedDays: rate.estimatedDays,
             deliveryEstimate: rate.estimatedDays ?
                 `${rate.estimatedDays} business day${rate.estimatedDays > 1 ? 's' : ''}` :
                 'Varies',
-            isFreeShipping: qualifiesForFreeShipping,
             attributes: rate.attributes || [],
             providerImage: rate.providerImage75,
+            arrivesBy: rate.arrivesBy,
+            durationTerms: rate.durationTerms,
+            messages: rate.messages || []
         })).sort((a, b) => a.cost - b.cost)
 
         // Update order with package details
-        order.shippingWeight = weight
-        order.shippingDimensions = dimensions
+        order.shippingWeight = shippingWeight
+        order.shippingWeightUnit = shippingWeightUnit
+        order.shippingDimensions = shippingDimensions
         await order.save()
 
         return NextResponse.json({
             success: true,
-            rates: processedRates,
-            packageDetails: { weight, dimensions },
-            freeShippingThreshold: FREE_SHIPPING_THRESHOLD,
-            qualifiesForFreeShipping,
-            currentSubtotal: order.subtotal
+            message: `Package details updated. Found ${processedRates.length} shipping options.`,
+            rates: processedRates
         })
     } catch (error) {
         console.error('Error getting shipping rates:', error)
         return NextResponse.json({
             error: 'Failed to get shipping rates',
-            details: error instanceof Error ? error.message : 'Unknown error'
-        }, { status: 500 })
-    }
-}
-
-async function handleSelectRate(order: any, requestData: any, adminUserId: string) {
-    const { rateId, rateDetails } = requestData
-
-    if (!rateId || !rateDetails) {
-        return NextResponse.json({
-            error: 'Rate ID and details are required'
-        }, { status: 400 })
-    }
-
-    try {
-        const FREE_SHIPPING_THRESHOLD = parseFloat(process.env.FREE_SHIPPING_THRESHOLD || "100")
-        const qualifiesForFreeShipping = order.subtotal >= FREE_SHIPPING_THRESHOLD
-
-        const originalShippingCost = order.shippingCost || 0
-        const newShippingCost = qualifiesForFreeShipping ? 0 : rateDetails.cost
-        const originalTotal = order.total
-
-        // Update order with selected shipping rate
-        order.shippoShipment = {
-            rateId: rateId,
-            carrier: rateDetails.carrier,
-            serviceLevelToken: rateDetails.serviceLevelToken,
-            serviceLevelName: rateDetails.serviceName,
-            cost: newShippingCost,
-            estimatedDeliveryDays: rateDetails.estimatedDays,
-        }
-
-        order.shippingCost = newShippingCost
-        order.total = order.subtotal + newShippingCost + (order.tax || 0)
-
-        // Check if total changed significantly
-        const totalChanged = Math.abs(order.total - originalTotal) > 0.01
-
-        if (totalChanged && !qualifiesForFreeShipping) {
-            order.isPriceAdjusted = true
-            if (order.status === 'approved') {
-                order.status = 'pending_payment_adjustment'
-                order.paymentStatus = 'pending_adjustment'
-            }
-        }
-
-        // Add to email history
-        order.emailHistory.push({
-            sentBy: adminUserId,
-            type: 'shipping_rate_selected',
-            subject: `Shipping rate selected for order ${order.orderNumber}`,
-            content: `Shipping rate selected: ${rateDetails.serviceName} - $${newShippingCost.toFixed(2)}${qualifiesForFreeShipping ? ' (Free shipping applied)' : ''}`,
-            sentAt: new Date(),
-        })
-
-        await order.save()
-
-        return NextResponse.json({
-            success: true,
-            message: 'Shipping rate selected successfully',
-            order: order,
-            priceChanged: totalChanged,
-            qualifiesForFreeShipping
-        })
-    } catch (error) {
-        console.error('Error selecting shipping rate:', error)
-        return NextResponse.json({
-            error: 'Failed to select shipping rate',
-            details: error instanceof Error ? error.message : 'Unknown error'
-        }, { status: 500 })
-    }
-}
-
-async function handleCreateLabel(order: any, requestData: any, adminUserId: string) {
-    const { rateId, labelFileType = "PDF_4x6" } = requestData
-
-    if (!order.shippoShipment?.rateId && !rateId) {
-        return NextResponse.json({
-            error: 'No shipping rate selected. Please select a rate first.'
-        }, { status: 400 })
-    }
-
-    const useRateId = rateId || order.shippoShipment.rateId
-
-    try {
-        const transactionRequest: ShippoTransactionRequest = {
-            rate: useRateId,
-            labelFileType: labelFileType as "PDF" | "PDF_4x6" | "PNG" | "ZPLII",
-            async: false,
-        }
-
-        const transaction = await ShippoService.createShipmentLabel(transactionRequest)
-
-        if (transaction.status === 'SUCCESS') {
-            // Update order with shipping label details
-            order.shippoShipment = {
-                ...order.shippoShipment,
-                transactionId: transaction.objectId,
-                trackingNumber: transaction.trackingNumber,
-                labelUrl: transaction.labelUrl,
-            }
-
-            order.trackingNumber = transaction.trackingNumber
-            order.status = 'processing' // Update status to processing
-
-            // Add to email history
-            order.emailHistory.push({
-                sentBy: adminUserId,
-                type: 'shipping_label_created',
-                subject: `Shipping label created for order ${order.orderNumber}`,
-                content: `Shipping label created successfully. Tracking number: ${transaction.trackingNumber}`,
-                sentAt: new Date(),
-            })
-
-            await order.save()
-
-            return NextResponse.json({
-                success: true,
-                message: 'Shipping label created successfully',
-                transaction: {
-                    id: transaction.objectId,
-                    status: transaction.status,
-                    trackingNumber: transaction.trackingNumber,
-                    labelUrl: transaction.labelUrl,
-                },
-                order: order
-            })
-        } else {
-            return NextResponse.json({
-                error: 'Label creation failed',
-                details: transaction.messages?.map(m => m.text).join(', ') || 'Unknown error'
-            }, { status: 400 })
-        }
-    } catch (error) {
-        console.error('Error creating shipping label:', error)
-        return NextResponse.json({
-            error: 'Failed to create shipping label',
             details: error instanceof Error ? error.message : 'Unknown error'
         }, { status: 500 })
     }

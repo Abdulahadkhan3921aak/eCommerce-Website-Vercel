@@ -18,24 +18,97 @@ export default function ImageUpload({ images, onImagesChange, maxImages = 10 }: 
     const { showAlert } = usePopup()
 
     const uploadToCloudinary = async (file: File): Promise<string> => {
-        const formData = new FormData()
-        formData.append('file', file)
-        formData.append('upload_preset', process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'your_upload_preset')
+        // Validate environment variables
+        const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+        const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET
 
-        const response = await fetch(
-            `https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload`,
-            {
-                method: 'POST',
-                body: formData,
-            }
-        )
+        console.log('Cloudinary Config:', {
+            cloudName: cloudName ? 'Set' : 'Missing',
+            uploadPreset: uploadPreset ? 'Set' : 'Missing'
+        })
 
-        if (!response.ok) {
-            throw new Error('Failed to upload image')
+        if (!cloudName) {
+            throw new Error('Cloudinary cloud name is not configured. Please set NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME in your environment variables.')
         }
 
-        const data = await response.json()
-        return data.secure_url
+        if (!uploadPreset) {
+            throw new Error('Cloudinary upload preset is not configured. Please set NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET in your environment variables.')
+        }
+
+        // Validate cloud name format - should not contain @ symbol
+        if (cloudName.includes('@')) {
+            throw new Error('Cloudinary cloud name should not contain @ symbol. Please check your NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME environment variable.')
+        }
+
+        // Validate file
+        const maxSize = 10 * 1024 * 1024 // 10MB
+        if (file.size > maxSize) {
+            throw new Error(`File size ${(file.size / 1024 / 1024).toFixed(2)}MB exceeds maximum allowed size of 10MB`)
+        }
+
+        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
+        if (!allowedTypes.includes(file.type)) {
+            throw new Error(`File type ${file.type} is not supported. Please use JPG, PNG, GIF, or WebP.`)
+        }
+
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('upload_preset', uploadPreset)
+
+        // Add additional parameters for better handling
+        formData.append('folder', 'ecommerce') // Optional: organize uploads in folders
+        formData.append('resource_type', 'image')
+
+        const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`
+
+        console.log('Uploading to:', uploadUrl)
+        console.log('File details:', {
+            name: file.name,
+            size: file.size,
+            type: file.type
+        })
+
+        try {
+            const response = await fetch(uploadUrl, {
+                method: 'POST',
+                body: formData,
+            })
+
+            console.log('Upload response status:', response.status)
+
+            if (!response.ok) {
+                const errorText = await response.text()
+                console.error('Upload error response:', errorText)
+
+                let errorMessage = 'Failed to upload image'
+                try {
+                    const errorData = JSON.parse(errorText)
+                    if (errorData.error && errorData.error.message) {
+                        errorMessage = errorData.error.message
+                    }
+                } catch (e) {
+                    // If JSON parsing fails, use the raw error text
+                    errorMessage = errorText || 'Unknown upload error'
+                }
+
+                throw new Error(errorMessage)
+            }
+
+            const data = await response.json()
+            console.log('Upload successful:', data.secure_url)
+
+            if (!data.secure_url) {
+                throw new Error('Upload succeeded but no URL was returned')
+            }
+
+            return data.secure_url
+        } catch (error) {
+            console.error('Upload error:', error)
+            if (error instanceof Error) {
+                throw error
+            }
+            throw new Error('Network error during upload')
+        }
     }
 
     const onDrop = useCallback(async (acceptedFiles: File[]) => {
@@ -46,39 +119,63 @@ export default function ImageUpload({ images, onImagesChange, maxImages = 10 }: 
 
         setUploading(true)
         const newUploadProgress: { [key: string]: number } = {}
+        const uploadedUrls: string[] = []
+        const failedFiles: string[] = []
 
         try {
-            const uploadPromises = acceptedFiles.map(async (file) => {
-                const fileId = `${file.name}-${Date.now()}`
+            // Process files one by one for better error handling
+            for (const file of acceptedFiles) {
+                const fileId = `${file.name}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
                 newUploadProgress[fileId] = 0
-                setUploadProgress(prev => ({ ...prev, ...newUploadProgress }))
+                setUploadProgress(prev => ({ ...prev, [fileId]: 0 }))
 
                 try {
+                    // Simulate progress for better UX
+                    const progressInterval = setInterval(() => {
+                        setUploadProgress(prev => {
+                            const current = prev[fileId] || 0
+                            if (current < 90) {
+                                return { ...prev, [fileId]: current + 10 }
+                            }
+                            return prev
+                        })
+                    }, 200)
+
                     const url = await uploadToCloudinary(file)
-                    newUploadProgress[fileId] = 100
+
+                    clearInterval(progressInterval)
                     setUploadProgress(prev => ({ ...prev, [fileId]: 100 }))
-                    return url
+                    uploadedUrls.push(url)
+
                 } catch (error) {
                     console.error(`Failed to upload ${file.name}:`, error)
-                    delete newUploadProgress[fileId]
+                    failedFiles.push(`${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+
+                    // Remove progress for failed file
                     setUploadProgress(prev => {
                         const updated = { ...prev }
                         delete updated[fileId]
                         return updated
                     })
-                    throw error
                 }
-            })
-
-            const uploadedUrls = await Promise.all(uploadPromises)
-            const validUrls = uploadedUrls.filter(url => url !== null)
-
-            if (validUrls.length > 0) {
-                onImagesChange([...images, ...validUrls])
             }
+
+            // Update images with successfully uploaded URLs
+            if (uploadedUrls.length > 0) {
+                onImagesChange([...images, ...uploadedUrls])
+                showAlert(`Successfully uploaded ${uploadedUrls.length} image(s)`, 'success')
+            }
+
+            // Show errors for failed uploads
+            if (failedFiles.length > 0) {
+                const errorMessage = `Failed to upload ${failedFiles.length} file(s):\n${failedFiles.join('\n')}`
+                showAlert(errorMessage, 'error')
+                console.error('Failed uploads:', failedFiles)
+            }
+
         } catch (error) {
-            console.error('Upload error:', error)
-            showAlert('Some images failed to upload. Please try again.', 'error')
+            console.error('Upload process error:', error)
+            showAlert('Upload process failed. Please check your internet connection and try again.', 'error')
         } finally {
             setUploading(false)
             setUploadProgress({})
@@ -146,6 +243,25 @@ export default function ImageUpload({ images, onImagesChange, maxImages = 10 }: 
 
     return (
         <div className="space-y-4">
+            {/* Environment Variables Check */}
+            {(!process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || !process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET) && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <div className="flex items-center">
+                        <svg className="w-5 h-5 text-red-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                        <div>
+                            <h3 className="text-sm font-medium text-red-800">Cloudinary Configuration Missing</h3>
+                            <p className="text-sm text-red-700 mt-1">
+                                Please configure your Cloudinary environment variables:
+                                <br />• NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+                                <br />• NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Upload Area */}
             <div
                 {...getRootProps()}
@@ -204,13 +320,13 @@ export default function ImageUpload({ images, onImagesChange, maxImages = 10 }: 
             {images.length > 0 && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                     {images.map((image, index) => (
-                        <div key={index} className="relative group">
+                        <div key={index} className="relative group aspect-square">
                             <Image
                                 src={image}
                                 alt={`Upload ${index + 1}`}
-                                className="w-full h-full object-cover"
+                                className="w-full h-full object-cover rounded-lg"
                                 fill
-                                sizes="(max-width: 768px) 100vw, 33vw"
+                                sizes="(max-width: 768px) 50vw, 25vw"
                                 style={{ objectFit: 'cover' }}
                                 onError={(e) => {
                                     const target = e.target as HTMLImageElement
@@ -220,7 +336,7 @@ export default function ImageUpload({ images, onImagesChange, maxImages = 10 }: 
                             <button
                                 type="button"
                                 onClick={() => removeImage(index)}
-                                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600 transition-colors"
+                                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600 transition-colors shadow-lg"
                             >
                                 ×
                             </button>
@@ -251,7 +367,7 @@ export default function ImageUpload({ images, onImagesChange, maxImages = 10 }: 
                                 type="text"
                                 value={image}
                                 onChange={e => handleImageChange(index, e.target.value)}
-                                placeholder="Image URL"
+                                placeholder="Image URL or upload files above"
                                 className="flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-purple-400"
                             />
                             {image && (

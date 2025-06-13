@@ -51,6 +51,39 @@ export async function POST(request: NextRequest) {
         let subtotal = 0
 
         for (const cartItem of cartItemIds) {
+            // Handle custom products differently
+            if (cartItem.productId?.startsWith('custom-')) {
+                const quantity = parseInt(cartItem.quantity) || 1
+                if (quantity <= 0) {
+                    return NextResponse.json({
+                        error: `Invalid quantity for custom item: ${quantity}`
+                    }, { status: 400 })
+                }
+
+                // For custom products, use the data from cart item directly
+                // Price should be 0 + any engraving fees until admin sets pricing
+                const customPrice = cartItem.price || cartItem.effectivePrice || 0
+
+                const itemTotal = customPrice * quantity
+                subtotal += itemTotal
+
+                orderItems.push({
+                    productId: cartItem.productId,
+                    unitId: cartItem.unitId || 'custom',
+                    name: cartItem.name || 'Custom Item',
+                    price: customPrice,
+                    quantity: quantity,
+                    size: cartItem.size || '',
+                    color: cartItem.color || 'Custom',
+                    image: cartItem.images?.[0] || '/images/custom-placeholder.jpg',
+                    isCustom: true,
+                    customDetails: cartItem.customDetails || {}
+                })
+
+                continue // Skip regular product processing for custom items
+            }
+
+            // Regular product processing
             const product = await Product.findById(cartItem.productId)
 
             if (!product) {

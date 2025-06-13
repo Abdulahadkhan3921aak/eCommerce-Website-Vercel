@@ -389,26 +389,63 @@ export default function CartPage() {
 
         {/* Custom Items Notice */}
         {customItems.length > 0 && (
-          <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <h3 className="font-semibold text-yellow-800 mb-2">Custom Orders Detected</h3>
-            <p className="text-yellow-700 text-sm mb-3">
-              You have {customItems.length} custom order(s) that require separate processing.
-              These items will be handled through our custom order system.
+          <div className="mb-6 bg-purple-50 border border-purple-200 rounded-lg p-4">
+            <h3 className="font-semibold text-purple-800 mb-2">🎨 Custom Items in Cart</h3>
+            <p className="text-purple-700 text-sm mb-3">
+              You have {customItems.length} custom item(s) in your cart. These will be processed with your regular order.
             </p>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {customItems.map((item, index) => (
-                <div key={`custom-${item._id}-${index}`} className="bg-white rounded p-3 border border-yellow-200">
-                  <div className="flex justify-between items-center">
-                    <span className="font-medium">{item.name}</span>
+                <div key={`custom-${item._id}-${index}`} className="bg-white rounded p-4 border border-purple-200">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <h4 className="font-medium text-purple-900">{item.name}</h4>
+                      <div className="mt-2 space-y-1 text-sm text-purple-700">
+                        <div>Category: {item.customDetails?.category}</div>
+                        <div>Quantity: {item.quantity}</div>
+                        {item.customDetails?.sizes && <div>Sizes: {item.customDetails.sizes}</div>}
+                        {item.customDetails?.hasEngraving && (
+                          <div className="text-purple-600">
+                            ✨ Engraving: "{item.customDetails.engraving}" (+${item.customDetails.engravingSurcharge * item.quantity})
+                          </div>
+                        )}
+                        {item.customDetails?.description && (
+                          <div>Description: {item.customDetails.description}</div>
+                        )}
+                      </div>
+                      <div className="mt-2 font-semibold text-purple-800">
+                        ${(item.effectivePrice * item.quantity).toFixed(2)}
+                        {item.customDetails?.hasEngraving && (
+                          <span className="text-sm font-normal"> (includes ${item.customDetails.engravingSurcharge * item.quantity} engraving)</span>
+                        )}
+                      </div>
+                    </div>
                     <button
                       onClick={() => removeFromCart(item._id)}
-                      className="text-red-600 hover:text-red-800 text-sm"
+                      className="text-red-600 hover:text-red-800 text-sm font-medium ml-4"
                     >
                       Remove
                     </button>
                   </div>
-                  <p className="text-sm text-gray-600">Quantity: {item.quantity}</p>
-                  {item.size && <p className="text-sm text-gray-600">Size: {item.size}</p>}
+
+                  {/* Show custom images if available */}
+                  {item.images && item.images.length > 0 && (
+                    <div className="mt-3 flex space-x-2">
+                      {item.images.slice(0, 3).map((image, imgIndex) => (
+                        <img
+                          key={imgIndex}
+                          src={image}
+                          alt={`Custom design ${imgIndex + 1}`}
+                          className="w-16 h-16 object-cover rounded border"
+                        />
+                      ))}
+                      {item.images.length > 3 && (
+                        <div className="w-16 h-16 bg-gray-100 rounded border flex items-center justify-center text-xs text-gray-500">
+                          +{item.images.length - 3} more
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -460,7 +497,7 @@ export default function CartPage() {
                         {item.salePrice && item.salePrice < item.price ? (
                           <>
                             <span className="text-sm text-gray-500 line-through">${item.price.toFixed(2)}</span>
-                            <span className="text-base sm:text-lg font-bold text-red-600">${item.salePrice.toFixed(2)}</span>
+                            <span className="text-base sm:text-lg font-bold text-red-600">${item.effectivePrice.toFixed(2)}</span>
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
                               Sale
                             </span>
@@ -782,7 +819,7 @@ export default function CartPage() {
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Order Placed Successfully!</h3>
               <p className="text-sm text-gray-600 mb-1">Order Number: {orderNumber}</p>
               <p className="text-sm text-gray-600 mb-6">
-                You will be notified on your email about order acceptance, payment and shipping details. Thank you!
+                You will be notified via email about order acceptance, payment processing, and shipping details. Thank you!
               </p>
 
               <button

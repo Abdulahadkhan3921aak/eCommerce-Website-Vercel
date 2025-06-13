@@ -12,6 +12,16 @@ export interface IOrder extends Document {
     size?: string
     color?: string
     image?: string
+    isCustom?: boolean // Add custom item indicator
+    customDetails?: {
+      category: string
+      engraving?: string
+      notes?: string
+    }
+    // Add tax-related fields for items
+    taxPercentage?: number
+    taxAmount?: number
+    totalWithTax?: number
   }>
   subtotal: number
   shippingCost: number
@@ -86,13 +96,32 @@ export interface IOrder extends Document {
   shippingWeightUnit?: 'lb' | 'kg' // Add weight unit tracking
   isPriceAdjusted?: boolean
   originalOrderId?: string
+  paymentToken?: string // New field for payment token
+  paymentTokenExpiry?: Date // New field for payment token expiry
+  isTaxSet?: boolean // New field to track if tax has been explicitly set by admin
+  isCustomOrder?: boolean // Add custom order flag
+  customOrderDetails?: {
+    category: string
+    title: string
+    description?: string
+    sizes: string
+    engraving?: string
+    notes?: string
+  }
+}
+
+const generateOrderNumber = () => {
+  const timestamp = Date.now().toString()
+  const random = Math.random().toString(36).substring(2, 8).toUpperCase()
+  return `ORD-${timestamp.slice(-6)}-${random}`
 }
 
 const OrderSchema = new Schema<IOrder>({
   orderNumber: {
     type: String,
     required: true,
-    unique: true // Remove the separate index: true to avoid duplicate
+    unique: true,
+    default: generateOrderNumber
   },
   userId: {
     type: String,
@@ -121,7 +150,30 @@ const OrderSchema = new Schema<IOrder>({
     },
     size: String,
     color: String,
-    image: String
+    image: String,
+    isCustom: Boolean, // Add custom item flag
+    customDetails: {
+      category: String,
+      engraving: String,
+      notes: String
+    },
+    // Add tax-related fields for items
+    taxPercentage: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100
+    },
+    taxAmount: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    totalWithTax: {
+      type: Number,
+      required: true,
+      min: 0
+    }
   }],
   subtotal: {
     type: Number,
@@ -143,14 +195,14 @@ const OrderSchema = new Schema<IOrder>({
     required: true,
     min: 0
   },
-  status: {
+  status: { // Updated enum
     type: String,
-    enum: ['pending_approval', 'approved', 'rejected', 'processing', 'shipped', 'delivered', 'cancelled', 'pending_payment_adjustment'],
+    enum: ['pending_approval', 'accepted', 'rejected', 'processing', 'shipped', 'delivered', 'cancelled', 'pending_payment_adjustment', 'pending_payment', 'removed'],
     default: 'pending_approval'
   },
-  paymentStatus: {
+  paymentStatus: { // Updated enum
     type: String,
-    enum: ['pending_approval', 'captured', 'failed', 'cancelled', 'pending_adjustment'],
+    enum: ['pending_approval', 'pending_payment', 'captured', 'failed', 'cancelled', 'pending_adjustment', 'succeeded', 'refunded'],
     default: 'pending_approval'
   },
   shippingAddress: {
@@ -230,30 +282,69 @@ const OrderSchema = new Schema<IOrder>({
     default: 'lb'
   },
   isPriceAdjusted: Boolean,
-  originalOrderId: String
+  originalOrderId: String,
+  paymentToken: {
+    type: String,
+    sparse: true
+  },
+  paymentTokenExpiry: {
+    type: Date,
+    sparse: true
+  },
+  isTaxSet: Boolean,
+  isCustomOrder: {
+    type: Boolean,
+    default: false
+  },
+  customOrderDetails: {
+    category: String,
+    title: String,
+    description: String,
+    sizes: String,
+    engraving: String,
+    notes: String,
+    images: [String]
+  }
 }, {
   timestamps: true
 })
 
-// Remove any duplicate index definitions
-// OrderSchema.index({ orderNumber: 1 }) // This should be removed if unique: true is set above
-
-// Pre-save hook to generate order number
+// Ensure unique order numbers with retry logic
 OrderSchema.pre('save', async function (next) {
   if (this.isNew && !this.orderNumber) {
-    try {
-      // Use this.constructor instead of mongoose.model('Order') to avoid circular reference
-      const count = await (this.constructor as any).countDocuments()
-      this.orderNumber = `ORD-${Date.now()}-${String(count + 1).padStart(4, '0')}`
-    } catch (error) {
-      console.error('Error generating order number:', error)
-      // Fallback order number generation
-      this.orderNumber = `ORD-${Date.now()}-${String(Math.floor(Math.random() * 9999) + 1).padStart(4, '0')}`
+    let orderNumber
+    let attempts = 0
+    const maxAttempts = 5
+
+    while (attempts < maxAttempts) {
+      orderNumber = generateOrderNumber()
+      const existingOrder = await this.constructor.findOne({ orderNumber })
+
+      if (!existingOrder) {
+        this.orderNumber = orderNumber
+        break
+      }
+
+      attempts++
+      if (attempts >= maxAttempts) {
+        return next(new Error('Unable to generate unique order number'))
+      }
     }
   }
   next()
 })
 
-const Order = mongoose.models.Order || mongoose.model<IOrder>('Order', OrderSchema)
+// Add method to calculate total tax amount
+OrderSchema.methods.calculateTotalTax = function () {
+  return this.items.reduce((total, item) => total + (item.taxAmount || 0), 0);
+};
 
-export default Order
+// Add method to calculate total with all taxes
+OrderSchema.methods.calculateGrandTotal = function () {
+  return this.subtotal + this.shippingCost + this.tax;
+};
+
+// Create and export the model
+const Order = mongoose.models.Order || mongoose.model('Order', OrderSchema);
+
+export default Order;

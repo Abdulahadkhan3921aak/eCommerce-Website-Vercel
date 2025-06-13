@@ -246,9 +246,44 @@ export async function POST(request: NextRequest) {
       body.category = normalizedCategory;
     }
 
-    // Remove slug requirement since it's auto-generated
-    if (!body.name || !body.description || !body.price || !body.category) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    // Updated validation for enhanced product form
+    if (!body.name || !body.description || !body.category) {
+      return NextResponse.json({ error: 'Missing required fields: name, description, and category are required' }, { status: 400 });
+    }
+
+    // Validate colors and sizes
+    if (!body.colors || !Array.isArray(body.colors) || body.colors.length === 0) {
+      return NextResponse.json({ error: 'At least one color is required' }, { status: 400 });
+    }
+
+    if (!body.sizes || !Array.isArray(body.sizes) || body.sizes.length === 0) {
+      return NextResponse.json({ error: 'At least one size is required' }, { status: 400 });
+    }
+
+    // Validate units
+    if (!body.units || !Array.isArray(body.units) || body.units.length === 0) {
+      return NextResponse.json({ error: 'Product units are required' }, { status: 400 });
+    }
+
+    // Validate each unit
+    for (const unit of body.units) {
+      if (!unit.price || unit.price <= 0) {
+        return NextResponse.json({
+          error: `Unit ${unit.color} - ${unit.size}: Price is required and must be greater than 0`
+        }, { status: 400 });
+      }
+
+      if (unit.stock < 0) {
+        return NextResponse.json({
+          error: `Unit ${unit.color} - ${unit.size}: Stock cannot be negative`
+        }, { status: 400 });
+      }
+
+      if (!unit.images || !Array.isArray(unit.images) || unit.images.length === 0) {
+        return NextResponse.json({
+          error: `Unit ${unit.color} - ${unit.size}: At least one image is required`
+        }, { status: 400 });
+      }
     }
 
     const product = new Product(body);

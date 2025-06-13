@@ -33,7 +33,7 @@ import { Product, ProductUnit, getUnitEffectivePrice, getProductDisplayPrice } f
 
 interface CartItem {
   _id: string // Unique identifier for this cart item instance (e.g., product._id + (unitId ? '_' + unitId : '_default'))
-  productId: string // The actual product's ID
+  productId: string // The actual product's ID (can be ObjectId string or custom string)
   name: string
   price: number // Original price of the product/unit
   salePrice?: number // Sale price of the product/unit
@@ -48,6 +48,7 @@ interface CartItem {
   stock?: number // Available stock for this specific unit/product at the time of adding
   weight?: number;
   dimensions?: { length: number; width: number; height: number; };
+  customDetails?: any; // Add customDetails for custom items
 }
 
 interface CartNotification {
@@ -270,7 +271,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
     const cartItem: CartItem = {
       _id: cartItemId,
-      productId: product._id,
+      productId: product._id, // This can be a custom string ID
       name: product.name,
       price: originalPrice,
       salePrice: salePrice,
@@ -285,6 +286,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       stock: itemStock,
       weight: product.weight,
       dimensions: product.dimensions,
+      customDetails: (product as any).customDetails, // Include custom details if present
     };
 
     // First update local state

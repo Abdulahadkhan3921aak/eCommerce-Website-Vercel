@@ -83,10 +83,6 @@ export async function POST(request: NextRequest) {
     const actualShippingCost = shippingCost;
 
     // Tax calculation: Consider if tax should be on (subtotal + original shipping cost)
-    // For simplicity, let's assume tax is on subtotal only, or subtotal + displayed shipping.
-    // If shipping is free, tax is on subtotal. If shipping has a cost, tax is on subtotal + shipping.
-    // This can get complex depending on local tax laws (e.g., is shipping taxable?).
-    // Current: Tax on subtotal + final shipping cost.
     const taxRate = 0.08; // Example tax rate.
     const taxableAmount = subtotal + actualShippingCost;
     const tax = taxableAmount * taxRate;
@@ -99,6 +95,7 @@ export async function POST(request: NextRequest) {
       subtotal,
       shippingCost: actualShippingCost,
       tax,
+      isTaxSet: true, // Set this flag since tax was calculated automatically
       total,
       status: 'pending_approval',
       paymentStatus: 'pending_approval',
@@ -151,7 +148,7 @@ export async function POST(request: NextRequest) {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'], // Consider adding 'link', 'afterpay_clearpay', etc.
       mode: 'payment',
-      success_url: `${request.headers.get('origin')}/checkout/success?session_id={CHECKOUT_SESSION_ID}&order_id=${order._id.toString()}`,
+      success_url: `${request.headers.get('origin')}/payment/success?session_id={CHECKOUT_SESSION_ID}&order_id=${order._id.toString()}&payment_intent={CHECKOUT_SESSION_ID}`,
       cancel_url: `${request.headers.get('origin')}/cart?checkout_cancelled=true`,
       line_items: items, // These are the Stripe line items passed from the cart page
       metadata: {
@@ -161,6 +158,10 @@ export async function POST(request: NextRequest) {
       customer_email: order.customerEmail, // Use email stored in order
       billing_address_collection: 'required', // Collect billing address on Stripe page
       shipping_options: [], // We are handling shipping rates
+      payment_intent_data: {
+        payment_intent: paymentIntent.id,
+        capture_method: 'manual',
+      },
       card: {
         request_three_d_secure: 'automatic',
       },
